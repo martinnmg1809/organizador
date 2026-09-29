@@ -1,0 +1,583 @@
+/*
+ * Organizador de espacios — motor de empaquetado 3D.
+ *
+ * Heurística constructiva basada en "espacios máximos vacíos" (EMS) con
+ * colocación por bloques (varias cajas iguales a la vez) y búsqueda GRASP:
+ * se construyen muchas soluciones con pequeñas variaciones aleatorias y se
+ * conserva la mejor. Parte de las iteraciones reconstruyen solo el final de
+ * la mejor solución (mejora local).
+ *
+ * Ejes: X = ancho, Y = alto (vertical, gravedad), Z = fondo.
+ */
+function OrganizadorPacker() {
+  'use strict';
+
+  let EPS = 1e-6;
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Orientaciones permitidas como [dx, dy, dz] (dy = altura).
+  function orientationsFor(t) {
+    const w = t.w, h = t.h, d = t.d;
+    let raw;
+    if (t.rot === 'none') raw = [[w, h, d]];
+    else if (t.rot === 'upright') raw = [[w, h, d], [d, h, w]];
+    else raw = [[w, h, d], [d, h, w], [w, d, h], [h, d, w], [d, w, h], [h, w, d]];
+    const out = [];
+    for (const o of raw) {
+      if (!out.some(p => p[0] === o[0] && p[1] === o[1] && p[2] === o[2])) out.push(o);
+    }
+    return out;
+  }
+
+  function prepare(input) {
+    const C = input.container;
+    EPS = Math.max(C.w, C.h, C.d) * 1e-9;
+    const mode = input.mode === 'fixed' ? 'fixed' : 'max';
+    const types = input.types.map((t, i) => {
+      let qty = t.qty;
+      if (t.enabled === false) qty = 0;
+      else if (qty == null || qty === '' || !isFinite(qty)) qty = mode === 'fixed' ? 0 : Infinity;
+      else qty = Math.max(0, Math.floor(qty));
+      const oris = orientationsFor(t).filter(o => o[0] <= C.w + EPS && o[1] <= C.h + EPS && o[2] <= C.d + EPS);
+      return {
+        index: i, vol: t.w * t.h * t.d, qty, oris,
+        minSide: Math.min(t.w, t.h, t.d), fits: oris.length > 0
+      };
+    });
+    const active = types.filter(t => t.qty > 0 && t.fits);
+    const V = C.w * C.h * C.d;
+
+    // Cotas superiores (solo sirven para parar antes si se alcanzan).
+    let volBound = 0;
+    for (const t of active) volBound += t.qty * t.vol;
+    volBound = Math.min(V, volBound);
+    let countBound = 0, cap = V;
+    for (const t of active.slice().sort((a, b) => a.vol - b.vol)) {
+      const k = Math.min(t.qty, Math.floor(cap / t.vol + 1e-9));
+      countBound += k; cap -= k * t.vol;
+    }
+
+    // Altura mínima posible si caben todas (para parar al compactar en modo fijo).
+    let minTop = 0;
+    if (mode === 'fixed') {
+      let tv = 0;
+      for (const t of active) {
+        tv += t.qty * t.vol;
+        minTop = Math.max(minTop, Math.min(...t.oris.map(o => o[1])));
+      }
+      minTop = Math.max(minTop, tv / (C.w * C.d));
+    }
+
+    return {
+      W: C.w, H: C.h, D: C.d, V, types, active, mode, minTop,
+      objective: input.objective === 'count' ? 'count' : 'volume',
+      support: Math.max(0, Math.min(1, +input.support || 0)),
+      volBound, countBound
+    };
+  }
+
+  // ---- Espacios -----------------------------------------------------------
+
+  function selectSpace(spaces, order) {
+    let bi = 0, b = spaces[0];
+    for (let i = 1; i < spaces.length; i++) {
+      const s = spaces[i];
+      if (s.y0 < b.y0 - EPS) { bi = i; b = s; continue; }
+      if (s.y0 > b.y0 + EPS) continue;
+      let p1, p2, q1, q2;
+      if (order === 0) { p1 = s.z0; q1 = b.z0; p2 = s.x0; q2 = b.x0; }
+      else { p1 = s.x0; q1 = b.x0; p2 = s.z0; q2 = b.z0; }
+      if (p1 < q1 - EPS || (Math.abs(p1 - q1) <= EPS && p2 < q2 - EPS)) { bi = i; b = s; }
+    }
+    return bi;
+  }
+
+  function contains(a, b) {
+    return a.x0 <= b.x0 + EPS && a.y0 <= b.y0 + EPS && a.z0 <= b.z0 + EPS &&
+      a.x1 >= b.x1 - EPS && a.y1 >= b.y1 - EPS && a.z1 >= b.z1 - EPS;
+  }
+
+  function applyBlock(P, st, b) {
+    st.blocks.push(b);
+    st.rem[b.t] -= b.nx * b.ny * b.nz;
+
+    let minSide = Infinity;
+    for (const t of P.active) if (st.rem[t.index] > 0 && t.minSide < minSide) minSide = t.minSide;
+    const big = s => s.x1 - s.x0 >= minSide - EPS && s.y1 - s.y0 >= minSide - EPS && s.z1 - s.z0 >= minSide - EPS;
+
+    const X1 = b.x + b.bx, Y1 = b.y + b.by, Z1 = b.z + b.bz;
+    const keep = [], fresh = [];
+    for (const s of st.spaces) {
+      if (s.x0 >= X1 - EPS || s.x1 <= b.x + EPS || s.y0 >= Y1 - EPS || s.y1 <= b.y + EPS ||
+          s.z0 >= Z1 - EPS || s.z1 <= b.z + EPS) {
+        if (big(s)) keep.push(s);
+        continue;
+      }
+      if (b.x - s.x0 > EPS) fresh.push({ x0: s.x0, y0: s.y0, z0: s.z0, x1: b.x, y1: s.y1, z1: s.z1 });
+      if (s.x1 - X1 > EPS) fresh.push({ x0: X1, y0: s.y0, z0: s.z0, x1: s.x1, y1: s.y1, z1: s.z1 });
+      if (b.y - s.y0 > EPS) fresh.push({ x0: s.x0, y0: s.y0, z0: s.z0, x1: s.x1, y1: b.y, z1: s.z1 });
+      if (s.y1 - Y1 > EPS) fresh.push({ x0: s.x0, y0: Y1, z0: s.z0, x1: s.x1, y1: s.y1, z1: s.z1 });
+      if (b.z - s.z0 > EPS) fresh.push({ x0: s.x0, y0: s.y0, z0: s.z0, x1: s.x1, y1: s.y1, z1: b.z });
+      if (s.z1 - Z1 > EPS) fresh.push({ x0: s.x0, y0: s.y0, z0: Z1, x1: s.x1, y1: s.y1, z1: s.z1 });
+    }
+    const f2 = fresh.filter(big);
+    const out = keep;
+    const nKeep = keep.length;
+    for (let i = 0; i < f2.length; i++) {
+      const f = f2[i];
+      let inside = false;
+      for (let k = 0; k < nKeep && !inside; k++) if (contains(keep[k], f)) inside = true;
+      for (let j = 0; j < f2.length && !inside; j++) {
+        if (j !== i && contains(f2[j], f) && (j < i || !contains(f, f2[j]))) inside = true;
+      }
+      if (!inside) out.push(f);
+    }
+    st.spaces = out;
+  }
+
+  // ---- Candidatos ---------------------------------------------------------
+
+  // Reduce un bloque nx×ny×nz a como mucho q cajas llenando X, luego Z, luego Y.
+  function fitShape(nx, ny, nz, q) {
+    if (nx * ny * nz <= q) return [nx, ny, nz];
+    const layer = nx * nz;
+    if (q >= layer) return [nx, Math.floor(q / layer), nz];
+    if (q >= nx) return [nx, 1, Math.floor(q / nx)];
+    return [q, 1, 1];
+  }
+
+  function genCandidates(P, st, s, out) {
+    const sx = s.x1 - s.x0, sy = s.y1 - s.y0, sz = s.z1 - s.z0;
+    for (const t of P.active) {
+      const q = st.rem[t.index];
+      if (q <= 0) continue;
+      for (const o of t.oris) {
+        const dx = o[0], dy = o[1], dz = o[2];
+        if (dx > sx + EPS || dy > sy + EPS || dz > sz + EPS) continue;
+        const nx = Math.floor((sx + EPS) / dx), ny = Math.floor((sy + EPS) / dy), nz = Math.floor((sz + EPS) / dz);
+        const shapes = [
+          fitShape(nx, ny, nz, q), fitShape(nx, 1, nz, q), fitShape(nx, 1, 1, q),
+          fitShape(1, 1, nz, q), [1, Math.min(ny, q), 1], [1, 1, 1]
+        ];
+        for (let i = 0; i < shapes.length; i++) {
+          const sh = shapes[i];
+          let dup = false;
+          for (let j = 0; j < i && !dup; j++) {
+            const o2 = shapes[j];
+            if (o2[0] === sh[0] && o2[1] === sh[1] && o2[2] === sh[2]) dup = true;
+          }
+          if (dup) continue;
+          const bx = sh[0] * dx, by = sh[1] * dy, bz = sh[2] * dz, n = sh[0] * sh[1] * sh[2];
+          const r = [sx - bx, sy - by, sz - bz].sort((a, b) => a - b);
+          out.push({
+            t: t.index, dx, dy, dz, nx: sh[0], ny: sh[1], nz: sh[2], bx, by, bz,
+            n, v: n * t.vol, r0: r[0], r1: r[1], r2: r[2]
+          });
+        }
+      }
+    }
+  }
+
+  function diff(a, b, tol) { const d = a - b; return Math.abs(d) > tol ? d : 0; }
+  const cmpFit = (a, b) => diff(a.r0, b.r0, EPS) || diff(a.r1, b.r1, EPS) || diff(a.r2, b.r2, EPS);
+  const COMPARE = {
+    vol: (a, b) => diff(b.v, a.v, EPS * EPS) || cmpFit(a, b),
+    count: (a, b) => (b.n - a.n) || diff(b.v, a.v, EPS * EPS) || cmpFit(a, b),
+    fit: (a, b) => cmpFit(a, b) || diff(b.v, a.v, EPS * EPS)
+  };
+
+  function supportArea(st, x, y, z, bx, bz) {
+    let area = 0;
+    for (const b of st.blocks) {
+      if (Math.abs(b.y + b.by - y) > EPS) continue;
+      const ox = Math.min(x + bx, b.x + b.bx) - Math.max(x, b.x);
+      if (ox <= EPS) continue;
+      const oz = Math.min(z + bz, b.z + b.bz) - Math.max(z, b.z);
+      if (oz <= EPS) continue;
+      area += ox * oz;
+    }
+    return area;
+  }
+
+  // Cada caja de la capa inferior del bloque debe tener el apoyo mínimo.
+  function blockSupported(P, st, x, y, z, c) {
+    const full = c.bx * c.bz;
+    const area = supportArea(st, x, y, z, c.bx, c.bz);
+    if (area >= full * (1 - 1e-9)) return true;
+    if (area < P.support * full * (1 - 1e-9)) return false;
+    const need = P.support * c.dx * c.dz * (1 - 1e-9);
+    for (let i = 0; i < c.nx; i++) for (let k = 0; k < c.nz; k++) {
+      if (supportArea(st, x + i * c.dx, y, z + k * c.dz, c.dx, c.dz) < need) return false;
+    }
+    return true;
+  }
+
+  function findPosition(P, st, s, c) {
+    if (P.support <= 0 || s.y0 <= EPS) return { x: s.x0, z: s.z0 };
+    const xs = [s.x0], zs = [s.z0];
+    if (s.x1 - c.bx > s.x0 + EPS) xs.push(s.x1 - c.bx);
+    if (s.z1 - c.bz > s.z0 + EPS) zs.push(s.z1 - c.bz);
+    for (const x of xs) for (const z of zs) {
+      if (blockSupported(P, st, x, s.y0, z, c)) return { x, z };
+    }
+    return null;
+  }
+
+  // ---- Construcción de una solución --------------------------------------
+
+  function construct(P, rng, cfg, prefix) {
+    const st = {
+      rem: P.types.map(t => t.qty),
+      spaces: [{ x0: 0, y0: 0, z0: 0, x1: P.W, y1: P.H, z1: P.D }],
+      blocks: []
+    };
+    if (prefix) for (const b of prefix) applyBlock(P, st, b);
+    const cands = [];
+    const cmp = COMPARE[cfg.crit];
+    while (st.spaces.length) {
+      const si = selectSpace(st.spaces, cfg.order);
+      const s = st.spaces[si];
+      cands.length = 0;
+      genCandidates(P, st, s, cands);
+      let chosen = null;
+      if (cands.length) {
+        cands.sort(cmp);
+        while (cands.length) {
+          let idx = 0;
+          if (cfg.k > 1 && rng() < cfg.p) idx = Math.floor(rng() * Math.min(cfg.k, cands.length));
+          const c = cands[idx];
+          const pos = findPosition(P, st, s, c);
+          if (pos) {
+            chosen = {
+              t: c.t, x: pos.x, y: s.y0, z: pos.z, dx: c.dx, dy: c.dy, dz: c.dz,
+              nx: c.nx, ny: c.ny, nz: c.nz, bx: c.bx, by: c.by, bz: c.bz
+            };
+            break;
+          }
+          cands.splice(idx, 1);
+        }
+      }
+      if (!chosen) { st.spaces.splice(si, 1); continue; }
+      applyBlock(P, st, chosen);
+    }
+    return st;
+  }
+
+  function evaluate(P, blocks) {
+    let n = 0, v = 0, top = 0;
+    for (const b of blocks) {
+      const k = b.nx * b.ny * b.nz;
+      n += k; v += k * P.types[b.t].vol;
+      if (b.y + b.by > top) top = b.y + b.by;
+    }
+    return { n, v, top };
+  }
+
+  function isBetter(P, a, b) {
+    if (!b) return true;
+    const tolV = P.V * 1e-9;
+    if (P.objective === 'count') {
+      if (a.n !== b.n) return a.n > b.n;
+      if (Math.abs(a.v - b.v) > tolV) return a.v > b.v;
+    } else {
+      if (Math.abs(a.v - b.v) > tolV) return a.v > b.v;
+      if (a.n !== b.n) return a.n > b.n;
+    }
+    return a.top < b.top - EPS;
+  }
+
+  // ---- Programación dinámica guillotina (modo maximizar) -----------------
+  //
+  // Óptimo entre los empaquetados "guillotina" (el contenedor se puede cortar
+  // recursivamente con planos paralelos a las caras) suponiendo cantidades
+  // ilimitadas. Los tamaños de subcontenedor se restringen a "puntos raster"
+  // (sumas de dimensiones de cajas), lo que mantiene el problema pequeño.
+
+  function rasterPoints(L, dims, limit) {
+    const pts = [0];
+    const seen = new Set([0]);
+    const key = v => Math.round(v / (EPS * 10));
+    for (let i = 0; i < pts.length; i++) {
+      for (const d of dims) {
+        const v = pts[i] + d;
+        if (v > L + EPS) continue;
+        const k = key(v);
+        if (seen.has(k)) continue;
+        seen.add(k); pts.push(v);
+        if (pts.length > limit) return null;
+      }
+    }
+    return pts.sort((a, b) => a - b).slice(1);
+  }
+
+  function guillotineDP(P, maxStates) {
+    const items = [];
+    for (const t of P.active) for (const o of t.oris) items.push({ t: t.index, dx: o[0], dy: o[1], dz: o[2], vol: t.vol });
+    if (!items.length) return null;
+    const uniq = a => Array.from(new Set(a));
+    const Rx = rasterPoints(P.W, uniq(items.map(i => i.dx)), 400);
+    const Ry = rasterPoints(P.H, uniq(items.map(i => i.dy)), 400);
+    const Rz = rasterPoints(P.D, uniq(items.map(i => i.dz)), 400);
+    if (!Rx || !Ry || !Rz || !Rx.length || !Ry.length || !Rz.length) return null;
+    const nx = Rx.length, ny = Ry.length, nz = Rz.length, N = nx * ny * nz;
+    if (N > maxStates || N * (nx + ny + nz) / 2 > 150e6) return null;
+
+    // idx[i][a] = índice del mayor raster <= R[i] - R[a] (o -1).
+    const restTable = R => R.map(v => R.map(c => {
+      const rest = v - c;
+      let lo = 0, hi = R.length - 1, ans = -1;
+      while (lo <= hi) { const m = (lo + hi) >> 1; if (R[m] <= rest + EPS) { ans = m; lo = m + 1; } else hi = m - 1; }
+      return ans;
+    }));
+    const TX = restTable(Rx), TY = restTable(Ry), TZ = restTable(Rz);
+
+    const byCount = P.objective === 'count';
+    const v1 = new Float64Array(N), v2 = new Float64Array(N);
+    const chK = new Int8Array(N), chA = new Int32Array(N);
+    const tol = P.V * 1e-9;
+    const id = (i, j, k) => (i * ny + j) * nz + k;
+
+    for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) for (let k = 0; k < nz; k++) {
+      const X = Rx[i], Y = Ry[j], Z = Rz[k];
+      let b1 = 0, b2 = 0, bk = 0, ba = 0;
+      const consider = (a1, a2, kind, arg) => {
+        const d = byCount ? a1 - b1 : (Math.abs(a1 - b1) > tol ? a1 - b1 : 0);
+        if (d > 0 || (d === 0 && (byCount ? a2 - b2 > tol : a2 > b2))) { b1 = a1; b2 = a2; bk = kind; ba = arg; }
+      };
+      for (let q = 0; q < items.length; q++) {
+        const it = items[q];
+        if (it.dx <= X + EPS && it.dy <= Y + EPS && it.dz <= Z + EPS) {
+          if (byCount) consider(1, it.vol, 1, q); else consider(it.vol, 1, 1, q);
+        }
+      }
+      for (let a = 0; a < i && Rx[a] <= X / 2 + EPS; a++) {
+        const r = TX[i][a], s1 = id(a, j, k);
+        const s2 = r >= 0 ? id(r, j, k) : -1;
+        consider(v1[s1] + (s2 >= 0 ? v1[s2] : 0), v2[s1] + (s2 >= 0 ? v2[s2] : 0), 2, a);
+      }
+      for (let a = 0; a < j && Ry[a] <= Y / 2 + EPS; a++) {
+        const r = TY[j][a], s1 = id(i, a, k);
+        const s2 = r >= 0 ? id(i, r, k) : -1;
+        consider(v1[s1] + (s2 >= 0 ? v1[s2] : 0), v2[s1] + (s2 >= 0 ? v2[s2] : 0), 3, a);
+      }
+      for (let a = 0; a < k && Rz[a] <= Z / 2 + EPS; a++) {
+        const r = TZ[k][a], s1 = id(i, j, a);
+        const s2 = r >= 0 ? id(i, j, r) : -1;
+        consider(v1[s1] + (s2 >= 0 ? v1[s2] : 0), v2[s1] + (s2 >= 0 ? v2[s2] : 0), 4, a);
+      }
+      const s = id(i, j, k);
+      v1[s] = b1; v2[s] = b2; chK[s] = bk; chA[s] = ba;
+    }
+
+    // Reconstrucción.
+    const boxes = [];
+    const stack = [[nx - 1, ny - 1, nz - 1, 0, 0, 0]];
+    while (stack.length) {
+      const [i, j, k, ox, oy, oz] = stack.pop();
+      const s = id(i, j, k), kind = chK[s], a = chA[s];
+      if (kind === 1) {
+        const it = items[a];
+        boxes.push({ t: it.t, x: ox, y: oy, z: oz, dx: it.dx, dy: it.dy, dz: it.dz });
+      } else if (kind === 2) {
+        stack.push([a, j, k, ox, oy, oz]);
+        if (TX[i][a] >= 0) stack.push([TX[i][a], j, k, ox + Rx[a], oy, oz]);
+      } else if (kind === 3) {
+        stack.push([i, a, k, ox, oy, oz]);
+        if (TY[j][a] >= 0) stack.push([i, TY[j][a], k, ox, oy + Ry[a], oz]);
+      } else if (kind === 4) {
+        stack.push([i, j, a, ox, oy, oz]);
+        if (TZ[k][a] >= 0) stack.push([i, j, TZ[k][a], ox, oy, oz + Rz[a]]);
+      }
+    }
+    return boxes;
+  }
+
+  // Deja caer las cajas (gravedad), respeta cantidades máximas y elimina las
+  // que no tengan el apoyo mínimo exigido. Devuelve bloques 1×1×1.
+  function settle(P, boxes) {
+    boxes = boxes.slice().sort((a, b) => a.y - b.y || a.z - b.z || a.x - b.x);
+    const left = P.types.map(t => t.qty);
+    const placed = [];
+
+    // Rejilla en el plano XZ para no comparar cada caja con todas.
+    let minSide = Infinity;
+    for (const b of boxes) minSide = Math.min(minSide, b.dx, b.dz);
+    const cs = Math.max(minSide, Math.max(P.W, P.D) / 128);
+    const gw = Math.max(1, Math.ceil(P.W / cs)), gd = Math.max(1, Math.ceil(P.D / cs));
+    const grid = new Array(gw * gd);
+    const cellRange = b => [
+      Math.max(0, Math.floor((b.x + EPS) / cs)), Math.min(gw - 1, Math.floor((b.x + b.dx - EPS) / cs)),
+      Math.max(0, Math.floor((b.z + EPS) / cs)), Math.min(gd - 1, Math.floor((b.z + b.dz - EPS) / cs))
+    ];
+    let stamp = 0;
+    const neighbours = b => {
+      const [i0, i1, k0, k1] = cellRange(b), out = [];
+      stamp++;
+      for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
+        const cell = grid[i * gd + k];
+        if (!cell) continue;
+        for (const p of cell) {
+          if (p.seen === stamp) continue;
+          p.seen = stamp;
+          if (Math.min(b.x + b.dx, p.x + p.dx) - Math.max(b.x, p.x) > EPS &&
+              Math.min(b.z + b.dz, p.z + p.dz) - Math.max(b.z, p.z) > EPS) out.push(p);
+        }
+      }
+      return out;
+    };
+
+    for (const b of boxes) {
+      if (left[b.t] <= 0) continue;
+      const near = neighbours(b);
+      let y = 0;
+      for (const p of near) {
+        const top = p.y + p.dy;
+        if (top > y && top <= b.y + EPS) y = top;
+      }
+      if (y > EPS && P.support > 0) {
+        let area = 0;
+        for (const p of near) {
+          if (Math.abs(p.y + p.dy - y) > EPS) continue;
+          area += (Math.min(b.x + b.dx, p.x + p.dx) - Math.max(b.x, p.x)) *
+                  (Math.min(b.z + b.dz, p.z + p.dz) - Math.max(b.z, p.z));
+        }
+        if (area < P.support * b.dx * b.dz * (1 - 1e-9)) continue;
+      }
+      left[b.t]--;
+      const q = { t: b.t, x: b.x, y, z: b.z, dx: b.dx, dy: b.dy, dz: b.dz, seen: 0 };
+      placed.push(q);
+      const [i0, i1, k0, k1] = cellRange(q);
+      for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) (grid[i * gd + k] || (grid[i * gd + k] = [])).push(q);
+    }
+    return placed.map(b => ({
+      t: b.t, x: b.x, y: b.y, z: b.z, dx: b.dx, dy: b.dy, dz: b.dz,
+      nx: 1, ny: 1, nz: 1, bx: b.dx, by: b.dy, bz: b.dz
+    }));
+  }
+
+  // ---- Solver -------------------------------------------------------------
+
+  const CRITS = ['vol', 'count', 'fit'];
+
+  class Solver {
+    constructor(input, seed) {
+      this.input = input;
+      this.P = prepare(input);
+      this.rng = mulberry32(seed == null ? 20240917 : seed);
+      this.iter = 0;
+      this.best = null;
+      this.bestScore = null;
+      this.elapsed = 0;
+      this.plan = [];
+      const first = this.P.objective === 'count' ? ['count', 'fit', 'vol'] : ['vol', 'fit', 'count'];
+      for (const crit of first) for (const order of [0, 1]) this.plan.push({ crit, order, k: 1, p: 0 });
+      this.done = this.P.active.length === 0;
+    }
+
+    boundReached() {
+      if (!this.bestScore) return false;
+      const P = this.P;
+      if (this.bestScore.v >= P.volBound - P.V * 1e-9) {
+        // En modo fijo, si caben todas, se sigue buscando una colocación más baja.
+        return P.mode !== 'fixed' || this.bestScore.top <= P.minTop + EPS;
+      }
+      return P.objective === 'count' && this.bestScore.n >= P.countBound;
+    }
+
+    iterate() {
+      const P = this.P, rng = this.rng;
+      let cfg, prefix = null;
+      if (this.iter < this.plan.length) cfg = this.plan[this.iter];
+      else {
+        cfg = {
+          crit: CRITS[Math.floor(rng() * CRITS.length)],
+          order: rng() < 0.5 ? 0 : 1,
+          k: 2 + Math.floor(rng() * 3),
+          p: 0.05 + rng() * 0.4
+        };
+        const bb = this.best && this.best.blocks;
+        if (bb && bb.length > 1 && bb.length <= 3000 && rng() < 0.5) {
+          prefix = bb.slice(0, Math.floor(bb.length * (0.2 + 0.75 * rng())));
+        }
+      }
+      const st = construct(P, rng, cfg, prefix);
+      const sc = evaluate(P, st.blocks);
+      if (isBetter(P, sc, this.bestScore)) { this.best = st; this.bestScore = sc; }
+      this.iter++;
+    }
+
+    runDP() {
+      const P = this.P;
+      if (P.mode !== 'max') return;
+      const boxes = guillotineDP(P, 1200000);
+      if (!boxes) return;
+      const blocks = settle(P, boxes);
+      const sc = evaluate(P, blocks);
+      if (isBetter(P, sc, this.bestScore)) { this.best = { blocks }; this.bestScore = sc; }
+      this.usedDP = true;
+    }
+
+    // Ejecuta iteraciones durante ~ms milisegundos.
+    run(ms) {
+      if (this.done) return;
+      const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const t0 = now();
+      if (!this.dpTried) {
+        this.dpTried = true;
+        this.runDP();
+        if (this.boundReached()) { this.done = true; this.elapsed += now() - t0; return; }
+      }
+      do {
+        this.iterate();
+        if (this.boundReached()) { this.done = true; break; }
+      } while (now() - t0 < ms);
+      this.elapsed += now() - t0;
+    }
+
+    result(maxItems) {
+      maxItems = maxItems || 60000;
+      const P = this.P;
+      const blocks = this.best ? this.best.blocks : [];
+      const sc = this.bestScore || { n: 0, v: 0, top: 0 };
+      const grouped = sc.n > maxItems;
+      const items = [];
+      const placed = P.types.map(() => 0);
+      for (const b of blocks) {
+        const k = b.nx * b.ny * b.nz;
+        placed[b.t] += k;
+        if (grouped) {
+          items.push({ t: b.t, x: b.x, y: b.y, z: b.z, w: b.bx, h: b.by, d: b.bz, count: k });
+          continue;
+        }
+        for (let j = 0; j < b.ny; j++)
+          for (let kz = 0; kz < b.nz; kz++)
+            for (let i = 0; i < b.nx; i++)
+              items.push({ t: b.t, x: b.x + i * b.dx, y: b.y + j * b.dy, z: b.z + kz * b.dz, w: b.dx, h: b.dy, d: b.dz, count: 1 });
+      }
+      return {
+        items, grouped,
+        count: sc.n, volume: sc.v, utilization: P.V > 0 ? sc.v / P.V : 0, top: sc.top,
+        placed,
+        requested: P.types.map(t => t.qty),
+        fits: P.types.map(t => t.fits),
+        containerVolume: P.V,
+        countBound: P.countBound, volBound: P.volBound,
+        boundReached: this.boundReached(),
+        iterations: this.iter, elapsed: this.elapsed, usedDP: !!this.usedDP
+      };
+    }
+  }
+
+  return { Solver, orientationsFor, prepare };
+}
+
+if (typeof module !== 'undefined' && module.exports) module.exports = OrganizadorPacker();
+else if (typeof window !== 'undefined') window.Packer = OrganizadorPacker();

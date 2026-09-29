@@ -1,0 +1,14 @@
+# Sistema
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editores
+.vscode/
+.idea/
+
+# Configuración local de Claude Code
+.claude/
+
+# Proyectos exportados desde la app
+organizador-*.json

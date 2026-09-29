@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Organizador de espacios</title>
+  <meta name="description" content="Calcula la mejor forma de colocar cajas dentro de un espacio y visualízala en 3D y por capas.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 29 9v14l-13 7-13-7V9z' fill='%232563eb'/%3E%3Cpath d='M16 16 29 9M16 16 3 9M16 16v14' stroke='%23fff' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 29 9v14l-13 7-13-7V9z" fill="currentColor"/><path d="M16 16 29 9M16 16 3 9M16 16v14" stroke="var(--bg)" stroke-width="2" fill="none"/></svg>
+      <h1>Organizador de espacios</h1>
+    </div>
+    <div class="topbar-actions">
+      <button type="button" class="btn ghost" id="btn-example" title="Cargar la configuración de ejemplo">Ejemplo</button>
+      <button type="button" class="btn ghost" id="btn-import" title="Abrir un proyecto guardado (.json)">Abrir</button>
+      <button type="button" class="btn" id="btn-export" title="Guardar el proyecto en un archivo .json">Guardar</button>
+      <input type="file" id="file-import" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <main class="app">
+    <aside class="panel" aria-label="Configuración">
+      <section class="card">
+        <div class="card-head">
+          <h2>Contenedor</h2>
+          <label class="inline-select">Unidad
+            <select id="unit">
+              <option value="mm">mm</option>
+              <option value="cm">cm</option>
+              <option value="m">m</option>
+              <option value="in">pulgadas</option>
+            </select>
+          </label>
+        </div>
+        <div class="dims">
+          <label><span>Ancho <em>X</em></span><input type="number" id="c-w" min="0" step="any" inputmode="decimal"></label>
+          <label><span>Alto <em>Y</em></span><input type="number" id="c-h" min="0" step="any" inputmode="decimal"></label>
+          <label><span>Fondo <em>Z</em></span><input type="number" id="c-d" min="0" step="any" inputmode="decimal"></label>
+        </div>
+        <p class="hint" id="c-vol"></p>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Tipos de caja</h2>
+          <button type="button" class="btn small" id="btn-add-type">+ Añadir</button>
+        </div>
+        <div id="types" class="types"></div>
+      </section>
+
+      <section class="card">
+        <h2>Objetivo</h2>
+        <div class="segmented full" id="mode" role="radiogroup" aria-label="Modo">
+          <button type="button" data-v="max" role="radio">Maximizar cantidad</button>
+          <button type="button" data-v="fixed" role="radio">Cantidad fija</button>
+        </div>
+        <p class="hint" id="mode-hint"></p>
+        <div class="form-rows">
+          <label><span id="objective-label">Priorizar</span>
+            <select id="objective">
+              <option value="count">Número de cajas</option>
+              <option value="volume">Volumen ocupado</option>
+            </select>
+          </label>
+          <label><span>Apoyo mínimo</span>
+            <select id="support">
+              <option value="0">Sin restricción</option>
+              <option value="0.5">50 % de la base</option>
+              <option value="0.75">75 % de la base</option>
+              <option value="1">100 % de la base</option>
+            </select>
+          </label>
+          <label><span>Tiempo de búsqueda</span>
+            <select id="time">
+              <option value="1">1 s (rápido)</option>
+              <option value="3">3 s</option>
+              <option value="5">5 s</option>
+              <option value="10">10 s</option>
+              <option value="30">30 s (exhaustivo)</option>
+            </select>
+          </label>
+        </div>
+        <div class="msg" id="msg" hidden></div>
+        <button type="button" class="btn primary block" id="btn-run">Calcular distribución</button>
+        <div class="progress" id="progress" hidden>
+          <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
+          <span id="progress-text"></span>
+        </div>
+      </section>
+
+      <section class="card" id="results-card">
+        <div class="card-head">
+          <h2>Resultado</h2>
+          <span class="badge warn" id="stale" hidden>Desactualizado</span>
+        </div>
+        <div id="results"><p class="empty">Configura el contenedor y las cajas y pulsa <b>Calcular distribución</b>.</p></div>
+      </section>
+    </aside>
+
+    <section class="workspace" aria-label="Visualización">
+      <div class="toolbar">
+        <div class="segmented" id="view-mode" role="radiogroup" aria-label="Vista">
+          <button type="button" data-v="3d" role="radio">3D</button>
+          <button type="button" data-v="split" role="radio">Dividida</button>
+          <button type="button" data-v="2d" role="radio">Capas 2D</button>
+        </div>
+        <div class="toolbar-group">
+          <span class="toolbar-label">Capas</span>
+          <div class="segmented" id="axis" role="radiogroup" aria-label="Dirección de las capas">
+            <button type="button" data-v="y" role="radio" title="Capas horizontales, de abajo arriba (vista superior)">Horizontales · Y</button>
+            <button type="button" data-v="z" role="radio" title="Capas verticales de atrás hacia delante (vista frontal)">Frontales · Z</button>
+            <button type="button" data-v="x" role="radio" title="Capas verticales de izquierda a derecha (vista lateral)">Laterales · X</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="layerbar">
+        <label class="check" title="Resalta la capa seleccionada en la vista 3D y atenúa el resto">
+          <input type="checkbox" id="layer-mode"> Resaltar capa en 3D
+        </label>
+        <div class="layer-nav">
+          <button type="button" class="btn icon" id="layer-prev" aria-label="Capa anterior">‹</button>
+          <input type="range" id="layer-slider" min="0" max="0" value="0" aria-label="Capa">
+          <button type="button" class="btn icon" id="layer-next" aria-label="Capa siguiente">›</button>
+        </div>
+        <span class="layer-label" id="layer-label">—</span>
+      </div>
+
+      <div class="views" id="views" data-mode="split">
+        <div class="view view3d">
+          <canvas id="c3d"></canvas>
+          <div class="v3d-labels" id="v3d-labels"></div>
+          <div class="tooltip" id="tip3d" hidden></div>
+          <div class="view-tools">
+            <div class="segmented small" id="cam-views">
+              <button type="button" data-v="iso">Iso</button>
+              <button type="button" data-v="front">Frente</button>
+              <button type="button" data-v="top">Arriba</button>
+              <button type="button" data-v="side">Lateral</button>
+            </div>
+          </div>
+          <div class="view-tools bottom" id="ghost-tools">
+            <label class="range-label">Otras capas
+              <input type="range" id="ghost" min="0" max="0.5" step="0.01">
+            </label>
+            <label class="check small"><input type="checkbox" id="solid-before"> Anteriores sólidas</label>
+          </div>
+          <div class="view-help">Arrastra: girar · Rueda: zoom · Clic derecho o Mayús: mover · Doble clic: centrar</div>
+          <div class="nogl" id="nogl" hidden>Tu navegador no admite WebGL: la vista 3D no está disponible, pero puedes usar la vista por capas.</div>
+        </div>
+        <div class="view view2d">
+          <div class="view-title" id="v2d-title"></div>
+          <div class="canvas-wrap">
+            <canvas id="c2d"></canvas>
+            <div class="tooltip" id="tip2d" hidden></div>
+          </div>
+          <div class="layer-summary" id="layer-summary"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/packer.js"></script>
+  <script src="js/viewer3d.js"></script>
+  <script src="js/layerview.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
