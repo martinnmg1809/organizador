@@ -489,27 +489,47 @@
     return layers;
   }
 
-  function currentLayer() {
-    const layers = getLayers(ui.axis);
+  // Capa idx del eje dado. opts: { ghost, solidBefore } para los estados 3D.
+  function layerAt(axis, idx, opts) {
+    const layers = getLayers(axis);
     if (!layers.length) return null;
-    ui.layer = Math.max(0, Math.min(layers.length - 1, ui.layer | 0));
-    const L = layers[ui.layer];
-    const [k, ks] = AXIS_KEYS[ui.axis];
+    idx = Math.max(0, Math.min(layers.length - 1, idx | 0));
+    const L = layers[idx];
+    const [k, ks] = AXIS_KEYS[axis];
     const eps = result.snapshot.container[ks] * 1e-7;
     const p = L.lo + eps;
     const items = result.items, n = items.length;
     const visible = [], states = new Uint8Array(n);
-    const ghostState = ui.ghost > 0.001 ? 3 : 5;
+    const ghostState = opts.ghost > 0.001 ? 3 : 5;
     for (let i = 0; i < n; i++) {
       const it = items[i], s = it[k], e = s + it[ks];
       if (s <= p && e > p) {
         const cont = s < L.lo - eps;
         visible.push({ i, cont });
         states[i] = cont ? 2 : 1;
-      } else if (ui.solidBefore && e <= p) states[i] = 4;
+      } else if (opts.solidBefore && e <= p) states[i] = 4;
       else states[i] = ghostState;
     }
-    return { layers, L, visible, states };
+    return { layers, index: idx, L, visible, states };
+  }
+
+  function currentLayer() {
+    const info = layerAt(ui.axis, ui.layer, ui);
+    if (info) ui.layer = info.index;
+    return info;
+  }
+
+  // Resumen de una capa: cajas nuevas por tipo y cajas que continúan.
+  function layerCounts(info) {
+    const byType = new Map();
+    let nNew = 0, nCont = 0;
+    for (const v of info.visible) {
+      const it = result.items[v.i], c = it.count || 1;
+      if (v.cont) { nCont += c; continue; }
+      nNew += c;
+      byType.set(it.t, (byType.get(it.t) || 0) + c);
+    }
+    return { byType, nNew, nCont };
   }
 
   // ---- Vistas ----------------------------------------------------------------
@@ -616,15 +636,7 @@
     const el = $('#layer-summary');
     if (!info) { el.innerHTML = '<span>La vista por capas muestra un corte del contenedor. Usa ‹ › o las flechas del teclado para recorrerlas.</span>'; return; }
     const S = result.snapshot, u = unitName(S.unit);
-    const byType = new Map();
-    let nNew = 0, nCont = 0;
-    for (const v of info.visible) {
-      const it = result.items[v.i];
-      const c = it.count || 1;
-      if (v.cont) { nCont += c; continue; }
-      nNew += c;
-      byType.set(it.t, (byType.get(it.t) || 0) + c);
-    }
+    const { byType, nNew, nCont } = layerCounts(info);
     const chips = [...byType.entries()].map(([t, n]) =>
       `<span class="chip"><span class="dot" style="background:${S.types[t].color}"></span><b>${fmt(n, 0)}×</b> ${esc(S.types[t].name)}</span>`).join('');
     const thick = info.L.hi - info.L.lo;
@@ -749,6 +761,14 @@
   bindViews();
   bindProject();
   $('#btn-run').addEventListener('click', run);
+  $('#btn-export-layers').addEventListener('click', () => {
+    if (!result) { showMsg('Calcula primero una distribución para poder exportarla.', 'error'); return; }
+    Exporter.open({
+      result, ui, viewer: viewer && !viewer.failed ? viewer : null,
+      getLayers, layerAt, layerCounts, fmt, unitName, volText, pct, stale,
+      axisText: AXIS_TEXT
+    });
+  });
   onNewResult();
   // Acceso para depuración desde la consola del navegador.
   window.organizador = { get config() { return config; }, get result() { return result; }, get viewer() { return viewer; }, get layerView() { return layerView; }, ui };

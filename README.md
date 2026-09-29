@@ -28,6 +28,12 @@ siempre que mantengas juntos `index.html`, `css/` y `js/`.
   de la capa, con las cajas que vienen de capas anteriores rayadas. En 3D, la capa
   seleccionada se resalta y el resto se atenúa (opacidad ajustable). Las flechas del teclado
   recorren las capas.
+- **Exportar** (botón junto a las capas):
+  - *PDF con todas las capas*: portada con el resumen y la vista 3D, y una página por capa
+    con el corte acotado, la vista 3D de esa capa (las anteriores en gris) y la lista de
+    cajas que hay que colocar. Listo para imprimir como instrucciones de montaje.
+  - *PNG de la capa actual*: la misma página, como imagen.
+  - *PNG de la vista 3D* tal como se ve en pantalla.
 - **Guardar / Abrir** proyectos como archivo `.json`. La última configuración también se
   recuerda automáticamente en el navegador.
 
@@ -38,7 +44,9 @@ index.html        Página principal
 css/styles.css    Estilos (tema claro y oscuro automático)
 js/packer.js      Motor de empaquetado 3D
 js/viewer3d.js    Visor 3D (WebGL, sin librerías externas)
-js/layerview.js   Vista 2D por capas
+js/layerview.js   Vista 2D por capas (el mismo dibujo sirve para pantalla, PNG y PDF)
+js/pdf.js         Generador de PDF propio (vectorial, sin dependencias)
+js/export.js      Exportación de capas a PDF / PNG
 js/app.js         Interfaz y coordinación
 ```
 

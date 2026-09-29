@@ -192,7 +192,7 @@
 
     resetView() { this.setView('iso'); }
 
-    setView(name) {
+    setView(name, aspectOverride, margin) {
       const C = this.size();
       const views = { iso: [0.65, 0.5], front: [0, 0.02], top: [0, 1.5607], side: [-Math.PI / 2, 0.02], back: [Math.PI, 0.35] };
       const v = views[name] || views.iso;
@@ -201,9 +201,9 @@
       this.cam.theta = v[0]; this.cam.phi = v[1];
       this.cam.target = [C.w / 2, C.h / 2, C.d / 2];
       const diag = Math.hypot(C.w, C.h, C.d);
-      const aspect = Math.max(0.3, this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight));
-      const fit = diag / 2 / Math.tan(this.fov / 2);
-      this.cam.dist = fit * (aspect < 1 ? 1.1 / aspect : 1.1);
+      const aspect = Math.max(0.3, aspectOverride || this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight));
+      const fit = diag / 2 / Math.tan(this.fov / 2), m = margin || 1.1;
+      this.cam.dist = fit * (aspect < 1 ? m / aspect : m);
       this.requestRender();
     }
 
@@ -247,7 +247,7 @@
         const P = c => [(c & 1) ? x1 : x0, (c & 2) ? y1 : y0, (c & 4) ? z1 : z0];
         let rgb = colors[it.t] || [0.5, 0.5, 0.5], a = 1;
         if (s === 2) rgb = mix(rgb, white, 0.3);
-        else if (s === 4) rgb = mix(rgb, grey, 0.55);
+        else if (s === 4) rgb = mix(rgb, grey, 0.75);
         else if (s === 3) a = ga;
         const ghostMode = s === 3;
         const arr = ghostMode ? ghost : opaque;
@@ -348,11 +348,12 @@
       return { eye, vp: M4.mul(proj, view) };
     }
 
-    render() {
+    render(size) {
       if (this.failed) return;
       const gl = this.gl, cv = this.canvas;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.max(1, Math.round(cv.clientWidth * dpr)), h = Math.max(1, Math.round(cv.clientHeight * dpr));
+      const w = size ? size.w : Math.max(1, Math.round(cv.clientWidth * dpr));
+      const h = size ? size.h : Math.max(1, Math.round(cv.clientHeight * dpr));
       if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
       gl.viewport(0, 0, w, h);
       const bg = this.theme.bg;
@@ -391,7 +392,7 @@
       this._drawLines('hover', vp);
       gl.depthMask(true);
 
-      this._updateLabels(vp);
+      if (!size) this._updateLabels(vp);
     }
 
     _drawMesh(key, vp) {
@@ -424,10 +425,11 @@
       gl.drawArrays(gl.LINES, 0, b.n);
     }
 
-    project(p, vp) {
+    project(p, vp, size) {
       const v = M4.apply(vp || this.vp, [p[0], p[1], p[2], 1]);
       if (v[3] <= 0) return null;
-      return [(v[0] / v[3] * 0.5 + 0.5) * this.canvas.clientWidth, (0.5 - v[1] / v[3] * 0.5) * this.canvas.clientHeight];
+      const w = size ? size.w : this.canvas.clientWidth, h = size ? size.h : this.canvas.clientHeight;
+      return [(v[0] / v[3] * 0.5 + 0.5) * w, (0.5 - v[1] / v[3] * 0.5) * h];
     }
 
     _updateLabels(vp) {
@@ -572,7 +574,43 @@
       for (let k = 0; k < 3; k++) c.target[k] += (-dx * right[k] + dy * up[k]) * scale;
     }
 
-    snapshot() { this.render(); return this.canvas.toDataURL('image/png'); }
+    snapshot(type, quality) { this.render(); return this.canvas.toDataURL(type || 'image/png', quality); }
+
+    // Renderiza una imagen fuera de pantalla sin alterar la vista actual.
+    // opts: { width, height, states, plane, ghostOpacity, view, theme, type, quality }
+    // Devuelve { url, labels:[{text,x,y,kind}] } con las etiquetas de medidas proyectadas.
+    renderImage(opts) {
+      if (this.failed || !this.scene) return null;
+      const saved = {
+        states: this.states, plane: this.plane, ghost: this.ghostOpacity, theme: Object.assign({}, this.theme),
+        cam: { theta: this.cam.theta, phi: this.cam.phi, dist: this.cam.dist, target: this.cam.target.slice() },
+        view: this._view, autoFit: this._autoFit, hover: this.hover
+      };
+      const size = { w: opts.width, h: opts.height };
+      try {
+        if (opts.theme) Object.assign(this.theme, opts.theme);
+        this.states = opts.states || null;
+        this.plane = opts.plane || null;
+        if (opts.ghostOpacity != null) this.ghostOpacity = opts.ghostOpacity;
+        this.hover = -1;
+        this._buildFrame(); this._buildGeometry(); this._buildPlane(); this._buildHover();
+        if (opts.view) this.setView(opts.view, size.w / size.h, 1.18);
+        this.render(size);
+        const url = this.canvas.toDataURL(opts.type || 'image/png', opts.quality);
+        const C = this.size(), f = this.scene.fmt || (v => v), u = this.scene.unit || '';
+        const labels = [
+          [`${f(C.w)} ${u}`, [C.w / 2, 0, C.d]], [`${f(C.h)} ${u}`, [C.w, C.h / 2, C.d]], [`${f(C.d)} ${u}`, [C.w, 0, C.d / 2]]
+        ].map(([text, p]) => { const s = this.project(p, this.vp, size); return s && { text, x: s[0], y: s[1] }; }).filter(Boolean);
+        return { url, labels };
+      } finally {
+        this.states = saved.states; this.plane = saved.plane; this.ghostOpacity = saved.ghost;
+        Object.assign(this.theme, saved.theme);
+        Object.assign(this.cam, saved.cam);
+        this._view = saved.view; this._autoFit = saved.autoFit; this.hover = saved.hover;
+        this._buildFrame(); this._buildGeometry(); this._buildPlane(); this._buildHover();
+        this.render();
+      }
+    }
   }
 
   root.Viewer3D = Viewer3D;

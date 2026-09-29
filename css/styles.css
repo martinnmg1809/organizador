@@ -343,6 +343,35 @@ select { padding-right: 4px; }
 .tooltip i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 .tooltip[hidden] { display: none; }
 
+/* ---------- Diálogo de exportación ---------- */
+.dialog {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+}
+.dialog::backdrop { background: rgba(10, 15, 25, .45); }
+.dialog h2 { font-size: 17px; font-weight: 650; margin-bottom: 14px; }
+.choices { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.choice {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; cursor: pointer;
+}
+.choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.choice:has(input:disabled) { opacity: .5; cursor: default; }
+.choice input { margin: 3px 0 0; accent-color: var(--accent); }
+.choice b { display: block; font-size: 14px; }
+.choice small { display: block; font-size: 12.5px; color: var(--text-2); }
+.checks { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.check input:disabled + * , .check:has(input:disabled) { opacity: .55; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.msg.warn { background: var(--warn-soft); color: var(--warn); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1100px) {
   .views[data-mode="split"] { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
