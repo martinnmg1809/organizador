@@ -137,7 +137,7 @@
       this.meshProg = compile(gl, MESH_VS, MESH_FS);
       this.lineProg = compile(gl, LINE_VS, LINE_FS);
       this.buf = {};
-      for (const k of ['opaque', 'ghost', 'edgeOpaque', 'edgeGhost', 'frame', 'plane', 'planeEdge', 'hover']) {
+      for (const k of ['opaque', 'ghost', 'edgeOpaque', 'edgeGhost', 'frame', 'plane', 'planeEdge', 'hover', 'marker']) {
         this.buf[k] = { b: gl.createBuffer(), n: 0 };
       }
       this.fov = 40 * Math.PI / 180;
@@ -146,6 +146,7 @@
       this.states = null;
       this.ghostOpacity = 0.12;
       this.plane = null;
+      this.marker = null;   // centro de gravedad {x,y,z}
       this.hover = -1;
       this.theme = { bg: [0.96, 0.97, 0.98], grid: [0, 0, 0, 0.08], frame: [0.2, 0.25, 0.3, 0.8], edge: [0, 0, 0, 0.45], accent: [0.15, 0.45, 0.95] };
       this._bindEvents();
@@ -176,6 +177,30 @@
       this._buildGeometry();
       this._buildPlane();
       this.requestRender();
+    }
+
+    setMarker(p) {
+      this.marker = p || null;
+      this._buildMarker();
+      this.requestRender();
+    }
+
+    _buildMarker() {
+      if (this.failed) return;
+      const L = [], m = this.marker;
+      if (m) {
+        const C = this.size(), r = Math.max(C.w, C.h, C.d) * 0.045, c = [0.86, 0.15, 0.47, 1];
+        const seg = (a, b, col) => L.push(a[0], a[1], a[2], col[0], col[1], col[2], col[3], b[0], b[1], b[2], col[0], col[1], col[2], col[3]);
+        seg([m.x - r, m.y, m.z], [m.x + r, m.y, m.z], c);
+        seg([m.x, m.y - r, m.z], [m.x, m.y + r, m.z], c);
+        seg([m.x, m.y, m.z - r], [m.x, m.y, m.z + r], c);
+        // Proyección vertical hasta el suelo (discontinua) y cruz en el suelo.
+        const n = 14, faint = [c[0], c[1], c[2], 0.7];
+        for (let i = 0; i < n; i += 2) seg([m.x, m.y * (1 - i / n), m.z], [m.x, m.y * (1 - (i + 1) / n), m.z], faint);
+        seg([m.x - r * 0.6, 0, m.z], [m.x + r * 0.6, 0, m.z], faint);
+        seg([m.x, 0, m.z - r * 0.6], [m.x, 0, m.z + r * 0.6], faint);
+      }
+      this._upload('marker', new Float32Array(L), 7);
     }
 
     setColors(colors) {
@@ -390,6 +415,7 @@
       // Caja resaltada (siempre visible)
       gl.disable(gl.DEPTH_TEST);
       this._drawLines('hover', vp);
+      this._drawLines('marker', vp);
       gl.depthMask(true);
 
       if (!size) this._updateLabels(vp);
@@ -438,16 +464,17 @@
       const u = this.scene.unit || '', f = this.scene.fmt || (v => v);
       const pts = [
         ['X', [len, 0, 0], 'axis x'], ['Y', [0, len, 0], 'axis y'], ['Z', [0, 0, len], 'axis z'],
-        [`${f(C.w)} ${u}`, [C.w / 2, 0, C.d], 'dim'], [`${f(C.h)} ${u}`, [C.w, C.h / 2, C.d], 'dim'], [`${f(C.d)} ${u}`, [C.w, 0, C.d / 2], 'dim']
+        [`${f(C.w)} ${u}`, [C.w / 2, 0, C.d], 'dim'], [`${f(C.h)} ${u}`, [C.w, C.h / 2, C.d], 'dim'], [`${f(C.d)} ${u}`, [C.w, 0, C.d / 2], 'dim'],
+        ['CG', this.marker ? [this.marker.x, this.marker.y + Math.max(C.w, C.h, C.d) * 0.07, this.marker.z] : null, 'cg']
       ];
       if (!this._labelEls) {
         this._labelEls = pts.map(() => { const s = document.createElement('span'); this.labels.appendChild(s); return s; });
       }
       pts.forEach((p, i) => {
-        const el = this._labelEls[i], s = this.project(p[1], vp);
+        const el = this._labelEls[i], s = p[1] && this.project(p[1], vp);
         el.className = 'v3d-label ' + p[2];
         el.textContent = p[0];
-        if (!s) { el.style.display = 'none'; return; }
+        if (!p[1] || !s) { el.style.display = 'none'; return; }
         el.style.display = '';
         el.style.transform = `translate(${s[0]}px, ${s[1]}px) translate(-50%, -50%)`;
       });
@@ -593,15 +620,17 @@
         this.plane = opts.plane || null;
         if (opts.ghostOpacity != null) this.ghostOpacity = opts.ghostOpacity;
         this.hover = -1;
-        this._buildFrame(); this._buildGeometry(); this._buildPlane(); this._buildHover();
+        this._buildFrame(); this._buildGeometry(); this._buildPlane(); this._buildHover(); this._buildMarker();
         if (opts.view) this.setView(opts.view, size.w / size.h, 1.18);
         this.render(size);
         const url = this.canvas.toDataURL(opts.type || 'image/png', opts.quality);
         const C = this.size(), f = this.scene.fmt || (v => v), u = this.scene.unit || '';
         const labels = [
           [`${f(C.w)} ${u}`, [C.w / 2, 0, C.d]], [`${f(C.h)} ${u}`, [C.w, C.h / 2, C.d]], [`${f(C.d)} ${u}`, [C.w, 0, C.d / 2]]
-        ].map(([text, p]) => { const s = this.project(p, this.vp, size); return s && { text, x: s[0], y: s[1] }; }).filter(Boolean);
-        return { url, labels };
+        ];
+        if (this.marker) labels.push(['CG', [this.marker.x, this.marker.y + Math.max(C.w, C.h, C.d) * 0.07, this.marker.z]]);
+        const projected = labels.map(([text, p]) => { const s = this.project(p, this.vp, size); return s && { text, x: s[0], y: s[1] }; }).filter(Boolean);
+        return { url, labels: projected };
       } finally {
         this.states = saved.states; this.plane = saved.plane; this.ghostOpacity = saved.ghost;
         Object.assign(this.theme, saved.theme);

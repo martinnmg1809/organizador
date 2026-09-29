@@ -47,14 +47,24 @@ function OrganizadorPacker() {
       else if (qty == null || qty === '' || !isFinite(qty)) qty = mode === 'fixed' ? 0 : Infinity;
       else qty = Math.max(0, Math.floor(qty));
       const oris = orientationsFor(t).filter(o => o[0] <= C.w + EPS && o[1] <= C.h + EPS && o[2] <= C.d + EPS);
+      const weight = Math.max(0, +t.weight || 0);
       return {
-        index: i, vol: t.w * t.h * t.d, qty, oris,
+        index: i, vol: t.w * t.h * t.d, qty, oris, weight,
+        density: t.w * t.h * t.d > 0 ? weight / (t.w * t.h * t.d) : 0,
         minSide: Math.min(t.w, t.h, t.d), fits: oris.length > 0,
         noStack: !!t.noStack   // no se puede colocar nada encima
       };
     });
-    const active = types.filter(t => t.qty > 0 && t.fits);
     const V = C.w * C.h * C.d;
+
+    // Límite de peso: capacidad = peso máximo − tara del contenedor.
+    const maxWeight = +input.maxWeight > 0 ? +input.maxWeight : Infinity;
+    const tare = Math.max(0, +input.tare || 0);
+    const wCap = maxWeight === Infinity ? Infinity : Math.max(0, maxWeight - tare);
+    const WEPS = 1e-9 * (isFinite(wCap) ? Math.max(1, wCap) : 1);
+    for (const t of types) t.tooHeavy = t.weight > wCap + WEPS;
+    const active = types.filter(t => t.qty > 0 && t.fits && !t.tooHeavy);
+    const hasWeight = types.some(t => t.weight > 0);
 
     // Cotas superiores (solo sirven para parar antes si se alcanzan).
     let volBound = 0;
@@ -64,6 +74,24 @@ function OrganizadorPacker() {
     for (const t of active.slice().sort((a, b) => a.vol - b.vol)) {
       const k = Math.min(t.qty, Math.floor(cap / t.vol + 1e-9));
       countBound += k; cap -= k * t.vol;
+    }
+    if (isFinite(wCap)) {
+      // Mochila fraccionaria por volumen/kg y mochila de cardinalidad por peso.
+      let vb = 0, wl = wCap;
+      const byRatio = active.slice().sort((a, b) => (b.weight ? b.vol / b.weight : Infinity) - (a.weight ? a.vol / a.weight : Infinity));
+      for (const t of byRatio) {
+        if (!t.weight) { vb += t.qty * t.vol; continue; }
+        const k = Math.min(t.qty, wl / t.weight);
+        vb += k * t.vol; wl -= k * t.weight;
+      }
+      volBound = Math.min(volBound, vb);
+      let cb = 0; wl = wCap;
+      for (const t of active.slice().sort((a, b) => a.weight - b.weight)) {
+        if (!t.weight) { cb += t.qty; continue; }
+        const k = Math.min(t.qty, Math.floor(wl / t.weight + 1e-9));
+        cb += k; wl -= k * t.weight;
+      }
+      countBound = Math.min(countBound, cb);
     }
 
     // Altura mínima posible si caben todas (para parar al compactar en modo fijo).
@@ -79,6 +107,7 @@ function OrganizadorPacker() {
 
     return {
       W: C.w, H: C.h, D: C.d, V, types, active, mode, minTop,
+      wCap, maxWeight, tare, hasWeight, WEPS,
       objective: input.objective === 'count' ? 'count' : 'volume',
       support: Math.max(0, Math.min(1, +input.support || 0)),
       volBound, countBound
@@ -108,10 +137,14 @@ function OrganizadorPacker() {
 
   function applyBlock(P, st, b) {
     st.blocks.push(b);
-    st.rem[b.t] -= b.nx * b.ny * b.nz;
+    const nb = b.nx * b.ny * b.nz;
+    st.rem[b.t] -= nb;
+    st.wLeft -= nb * P.types[b.t].weight;
 
     let minSide = Infinity;
-    for (const t of P.active) if (st.rem[t.index] > 0 && t.minSide < minSide) minSide = t.minSide;
+    for (const t of P.active) {
+      if (st.rem[t.index] > 0 && t.weight <= st.wLeft + P.WEPS && t.minSide < minSide) minSide = t.minSide;
+    }
     const big = s => s.x1 - s.x0 >= minSide - EPS && s.y1 - s.y0 >= minSide - EPS && s.z1 - s.z0 >= minSide - EPS;
 
     // Sobre una caja no apilable se reserva toda la columna hasta el techo.
@@ -159,7 +192,8 @@ function OrganizadorPacker() {
   function genCandidates(P, st, s, out) {
     const sx = s.x1 - s.x0, sy = s.y1 - s.y0, sz = s.z1 - s.z0;
     for (const t of P.active) {
-      const q = st.rem[t.index];
+      let q = st.rem[t.index];
+      if (t.weight > 0 && isFinite(st.wLeft)) q = Math.min(q, Math.floor((st.wLeft + P.WEPS) / t.weight));
       if (q <= 0) continue;
       for (const o of t.oris) {
         const dx = o[0], dy = o[1], dz = o[2];
@@ -182,7 +216,10 @@ function OrganizadorPacker() {
           const r = [sx - bx, sy - by, sz - bz].sort((a, b) => a - b);
           out.push({
             t: t.index, dx, dy, dz, nx: sh[0], ny: sh[1], nz: sh[2], bx, by, bz,
-            n, v: n * t.vol, r0: r[0], r1: r[1], r2: r[2]
+            n, v: n * t.vol, r0: r[0], r1: r[1], r2: r[2],
+            // valor por kg (para cuando el peso limita) y densidad (pesadas abajo)
+            vpk: t.weight > 0 ? (P.objective === 'count' ? 1 : t.vol) / t.weight : Infinity,
+            dens: t.density
           });
         }
       }
@@ -194,7 +231,11 @@ function OrganizadorPacker() {
   const COMPARE = {
     vol: (a, b) => diff(b.v, a.v, EPS * EPS) || cmpFit(a, b),
     count: (a, b) => (b.n - a.n) || diff(b.v, a.v, EPS * EPS) || cmpFit(a, b),
-    fit: (a, b) => cmpFit(a, b) || diff(b.v, a.v, EPS * EPS)
+    fit: (a, b) => cmpFit(a, b) || diff(b.v, a.v, EPS * EPS),
+    // Con límite de peso: primero lo que más aporta por kg.
+    perkg: (a, b) => (b.vpk === a.vpk ? 0 : b.vpk > a.vpk ? 1 : -1) || diff(b.v, a.v, EPS * EPS) || cmpFit(a, b),
+    // Estabilidad: primero las cajas más densas (quedan abajo).
+    heavy: (a, b) => (b.dens - a.dens) || diff(b.v, a.v, EPS * EPS) || cmpFit(a, b)
   };
 
   function supportArea(st, x, y, z, bx, bz) {
@@ -235,13 +276,18 @@ function OrganizadorPacker() {
     return true;
   }
 
-  function findPosition(P, st, s, c) {
+  // center: probar primero la posición del hueco más cercana al centro
+  // horizontal del contenedor (reparte el peso de forma equilibrada).
+  function findPosition(P, st, s, c, center) {
     const needSupport = P.support > 0 && s.y0 > EPS;
     const noStack = P.types[c.t].noStack;
-    if (!needSupport && !noStack) return { x: s.x0, z: s.z0 };
+    const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const cx = cl(P.W / 2 - c.bx / 2, s.x0, s.x1 - c.bx), cz = cl(P.D / 2 - c.bz / 2, s.z0, s.z1 - c.bz);
+    if (!needSupport && !noStack) return center ? { x: cx, z: cz } : { x: s.x0, z: s.z0 };
     const xs = [s.x0], zs = [s.z0];
     if (s.x1 - c.bx > s.x0 + EPS) xs.push(s.x1 - c.bx);
     if (s.z1 - c.bz > s.z0 + EPS) zs.push(s.z1 - c.bz);
+    if (center) { xs.unshift(cx); zs.unshift(cz); }
     for (const x of xs) for (const z of zs) {
       if ((!needSupport || blockSupported(P, st, x, s.y0, z, c)) && columnFree(P, st, x, s.y0, z, c)) return { x, z };
     }
@@ -253,6 +299,7 @@ function OrganizadorPacker() {
   function construct(P, rng, cfg, prefix) {
     const st = {
       rem: P.types.map(t => t.qty),
+      wLeft: P.wCap,
       spaces: [{ x0: 0, y0: 0, z0: 0, x1: P.W, y1: P.H, z1: P.D }],
       blocks: []
     };
@@ -271,7 +318,7 @@ function OrganizadorPacker() {
           let idx = 0;
           if (cfg.k > 1 && rng() < cfg.p) idx = Math.floor(rng() * Math.min(cfg.k, cands.length));
           const c = cands[idx];
-          const pos = findPosition(P, st, s, c);
+          const pos = findPosition(P, st, s, c, cfg.center);
           if (pos) {
             chosen = {
               t: c.t, x: pos.x, y: s.y0, z: pos.z, dx: c.dx, dy: c.dy, dz: c.dz,
@@ -289,13 +336,17 @@ function OrganizadorPacker() {
   }
 
   function evaluate(P, blocks) {
-    let n = 0, v = 0, top = 0;
+    let n = 0, v = 0, top = 0, w = 0, mx = 0, my = 0, mz = 0;
     for (const b of blocks) {
-      const k = b.nx * b.ny * b.nz;
-      n += k; v += k * P.types[b.t].vol;
+      const k = b.nx * b.ny * b.nz, bw = k * P.types[b.t].weight;
+      n += k; v += k * P.types[b.t].vol; w += bw;
+      mx += bw * (b.x + b.bx / 2); my += bw * (b.y + b.by / 2); mz += bw * (b.z + b.bz / 2);
       if (b.y + b.by > top) top = b.y + b.by;
     }
-    return { n, v, top };
+    const cog = w > 0 ? { x: mx / w, y: my / w, z: mz / w } : null;
+    // Desplazamiento horizontal del centro de gravedad respecto al centro del contenedor.
+    const off = cog ? Math.hypot(cog.x - P.W / 2, cog.z - P.D / 2) : 0;
+    return { n, v, top, w, cog, off };
   }
 
   function isBetter(P, a, b) {
@@ -307,6 +358,12 @@ function OrganizadorPacker() {
     } else {
       if (Math.abs(a.v - b.v) > tolV) return a.v > b.v;
       if (a.n !== b.n) return a.n > b.n;
+    }
+    if (P.hasWeight && a.cog && b.cog) {
+      // Más estable: centro de gravedad más bajo y luego más centrado.
+      const ty = P.H * 0.005, tx = Math.max(P.W, P.D) * 0.005;
+      if (Math.abs(a.cog.y - b.cog.y) > ty) return a.cog.y < b.cog.y;
+      if (Math.abs(a.off - b.off) > tx) return a.off < b.off;
     }
     return a.top < b.top - EPS;
   }
@@ -422,6 +479,7 @@ function OrganizadorPacker() {
   function settle(P, boxes) {
     boxes = boxes.slice().sort((a, b) => a.y - b.y || a.z - b.z || a.x - b.x);
     const left = P.types.map(t => t.qty);
+    let wLeft = P.wCap;
     const placed = [];
 
     // Rejilla en el plano XZ para no comparar cada caja con todas.
@@ -452,7 +510,7 @@ function OrganizadorPacker() {
     };
 
     for (const b of boxes) {
-      if (left[b.t] <= 0) continue;
+      if (left[b.t] <= 0 || P.types[b.t].weight > wLeft + P.WEPS) continue;
       const near = neighbours(b);
       if (near.some(p => P.types[p.t].noStack)) continue;
       let y = 0;
@@ -470,6 +528,7 @@ function OrganizadorPacker() {
         if (area < P.support * b.dx * b.dz * (1 - 1e-9)) continue;
       }
       left[b.t]--;
+      wLeft -= P.types[b.t].weight;
       const q = { t: b.t, x: b.x, y, z: b.z, dx: b.dx, dy: b.dy, dz: b.dz, seen: 0 };
       placed.push(q);
       const [i0, i1, k0, k1] = cellRange(q);
@@ -495,8 +554,13 @@ function OrganizadorPacker() {
       this.bestScore = null;
       this.elapsed = 0;
       this.plan = [];
-      const first = this.P.objective === 'count' ? ['count', 'fit', 'vol'] : ['vol', 'fit', 'count'];
+      const P = this.P;
+      this.crits = CRITS.slice();
+      if (isFinite(P.wCap)) this.crits.push('perkg');
+      if (P.hasWeight) this.crits.push('heavy');
+      const first = (P.objective === 'count' ? ['count', 'fit', 'vol'] : ['vol', 'fit', 'count']).concat(this.crits.slice(3));
       for (const crit of first) for (const order of [0, 1]) this.plan.push({ crit, order, k: 1, p: 0 });
+      if (P.hasWeight) for (const crit of first) this.plan.push({ crit, order: 0, k: 1, p: 0, center: true });
       this.done = this.P.active.length === 0;
     }
 
@@ -504,8 +568,9 @@ function OrganizadorPacker() {
       if (!this.bestScore) return false;
       const P = this.P;
       if (this.bestScore.v >= P.volBound - P.V * 1e-9) {
-        // En modo fijo, si caben todas, se sigue buscando una colocación más baja.
-        return P.mode !== 'fixed' || this.bestScore.top <= P.minTop + EPS;
+        // En modo fijo, si caben todas, se sigue buscando una colocación más baja
+        // (o, si hay pesos, más estable) durante el tiempo disponible.
+        return P.mode !== 'fixed' || (!P.hasWeight && this.bestScore.top <= P.minTop + EPS);
       }
       return P.objective === 'count' && this.bestScore.n >= P.countBound;
     }
@@ -516,10 +581,11 @@ function OrganizadorPacker() {
       if (this.iter < this.plan.length) cfg = this.plan[this.iter];
       else {
         cfg = {
-          crit: CRITS[Math.floor(rng() * CRITS.length)],
+          crit: this.crits[Math.floor(rng() * this.crits.length)],
           order: rng() < 0.5 ? 0 : 1,
           k: 2 + Math.floor(rng() * 3),
-          p: 0.05 + rng() * 0.4
+          p: 0.05 + rng() * 0.4,
+          center: P.hasWeight && rng() < 0.35
         };
         const bb = this.best && this.best.blocks;
         if (bb && bb.length > 1 && bb.length <= 3000 && rng() < 0.5) {
@@ -564,21 +630,35 @@ function OrganizadorPacker() {
       maxItems = maxItems || 60000;
       const P = this.P;
       const blocks = this.best ? this.best.blocks : [];
-      const sc = this.bestScore || { n: 0, v: 0, top: 0 };
+      let sc = this.bestScore || { n: 0, v: 0, top: 0, w: 0, cog: null, off: 0 };
       const grouped = sc.n > maxItems;
+
+      // Con pesos, se desplaza toda la carga (movimiento rígido, dentro del hueco
+      // libre) para acercar el centro de gravedad al centro: más fácil de cargar.
+      let sx = 0, sz = 0;
+      if (P.hasWeight && sc.cog && blocks.length) {
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const b of blocks) {
+          x0 = Math.min(x0, b.x); x1 = Math.max(x1, b.x + b.bx);
+          z0 = Math.min(z0, b.z); z1 = Math.max(z1, b.z + b.bz);
+        }
+        sx = Math.max(-x0, Math.min(P.W - x1, P.W / 2 - sc.cog.x));
+        sz = Math.max(-z0, Math.min(P.D - z1, P.D / 2 - sc.cog.z));
+        if (sx || sz) sc = evaluate(P, blocks.map(b => Object.assign({}, b, { x: b.x + sx, z: b.z + sz })));
+      }
       const items = [];
       const placed = P.types.map(() => 0);
       for (const b of blocks) {
         const k = b.nx * b.ny * b.nz;
         placed[b.t] += k;
         if (grouped) {
-          items.push({ t: b.t, x: b.x, y: b.y, z: b.z, w: b.bx, h: b.by, d: b.bz, count: k });
+          items.push({ t: b.t, x: b.x + sx, y: b.y, z: b.z + sz, w: b.bx, h: b.by, d: b.bz, count: k });
           continue;
         }
         for (let j = 0; j < b.ny; j++)
           for (let kz = 0; kz < b.nz; kz++)
             for (let i = 0; i < b.nx; i++)
-              items.push({ t: b.t, x: b.x + i * b.dx, y: b.y + j * b.dy, z: b.z + kz * b.dz, w: b.dx, h: b.dy, d: b.dz, count: 1 });
+              items.push({ t: b.t, x: b.x + sx + i * b.dx, y: b.y + j * b.dy, z: b.z + sz + kz * b.dz, w: b.dx, h: b.dy, d: b.dz, count: 1 });
       }
       return {
         items, grouped,
@@ -587,6 +667,9 @@ function OrganizadorPacker() {
         requested: P.types.map(t => t.qty),
         fits: P.types.map(t => t.fits),
         containerVolume: P.V,
+        weight: sc.w, cog: sc.cog, cogOffset: sc.off,
+        maxWeight: isFinite(P.maxWeight) ? P.maxWeight : null, tare: P.tare,
+        tooHeavy: P.types.map(t => !!t.tooHeavy),
         countBound: P.countBound, volBound: P.volBound,
         boundReached: this.boundReached(),
         iterations: this.iter, elapsed: this.elapsed, usedDP: !!this.usedDP

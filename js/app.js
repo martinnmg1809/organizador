@@ -35,10 +35,11 @@
     unit: 'cm',
     container: { w: 100, h: 100, d: 100 },
     types: [
-      { id: uid(), name: 'Caja grande', w: 40, h: 30, d: 30, qty: '', rot: 'all', color: PALETTE[0], enabled: true },
-      { id: uid(), name: 'Caja mediana', w: 30, h: 20, d: 20, qty: '', rot: 'all', color: PALETTE[1], enabled: true },
-      { id: uid(), name: 'Caja pequeña', w: 15, h: 10, d: 15, qty: '', rot: 'all', color: PALETTE[2], enabled: true }
+      { id: uid(), name: 'Caja grande', w: 40, h: 30, d: 30, qty: '', weight: 6, rot: 'all', color: PALETTE[0], enabled: true },
+      { id: uid(), name: 'Caja mediana', w: 30, h: 20, d: 20, qty: '', weight: 3, rot: 'all', color: PALETTE[1], enabled: true },
+      { id: uid(), name: 'Caja pequeña', w: 15, h: 10, d: 15, qty: '', weight: 0.5, rot: 'all', color: PALETTE[2], enabled: true }
     ],
+    maxWeight: '', tare: '',
     mode: 'max', objective: 'volume', support: 0.75, time: 3
   });
 
@@ -81,6 +82,7 @@
   function sanitizeConfig(c) {
     const d = example();
     const num = (v, def) => (isFinite(+v) && +v > 0 ? +v : def);
+    const optNum = v => (v === '' || v == null || !isFinite(+v) || +v <= 0 ? '' : +v);
     const out = {
       unit: ['mm', 'cm', 'm', 'in'].includes(c.unit) ? c.unit : d.unit,
       container: {
@@ -94,8 +96,11 @@
         rot: ['all', 'upright', 'none'].includes(t.rot) ? t.rot : 'all',
         color: /^#[0-9a-f]{6}$/i.test(t.color) ? t.color : PALETTE[i % PALETTE.length],
         enabled: t.enabled !== false,
-        noStack: !!t.noStack
+        noStack: !!t.noStack,
+        weight: optNum(t.weight)
       })) : d.types,
+      maxWeight: optNum(c.maxWeight),
+      tare: optNum(c.tare),
       mode: c.mode === 'fixed' ? 'fixed' : 'max',
       objective: c.objective === 'count' ? 'count' : 'volume',
       support: [0, 0.5, 0.75, 1].includes(+c.support) ? +c.support : 0.75,
@@ -119,6 +124,9 @@
     $('#objective').value = config.objective;
     $('#support').value = String(config.support);
     $('#time').value = String(config.time);
+    $('#c-maxw').value = config.maxWeight;
+    $('#c-tare').value = config.tare;
+    renderWeightInfo();
     renderModeHint();
     renderContainerInfo();
     renderTypes();
@@ -138,9 +146,28 @@
     $('#c-vol').textContent = V > 0 ? `Volumen: ${fmt(V, 2)} ${u}³ (${volText(V, config.unit)})` : 'Introduce las medidas del contenedor.';
   }
 
+  const kg = v => `${fmt(v, 2)} kg`;
+  const weightCap = () => (config.maxWeight > 0 ? Math.max(0, config.maxWeight - (+config.tare || 0)) : Infinity);
+
+  function renderWeightInfo() {
+    const el = $('#w-info');
+    for (const b of $$('#weight-presets button')) b.setAttribute('aria-pressed', String(String(config.maxWeight) === b.dataset.w));
+    const anyWeight = config.types.some(t => t.enabled && +t.weight > 0);
+    if (!(config.maxWeight > 0)) {
+      el.textContent = anyWeight ? 'Sin límite de peso: se calculará el peso total y el centro de gravedad.'
+        : 'Indica el peso de cada caja para calcular el peso total y el centro de gravedad.';
+      return;
+    }
+    const cap = weightCap();
+    el.textContent = config.tare > 0
+      ? `Disponible para las cajas: ${kg(cap)} (${kg(config.maxWeight)} − ${kg(config.tare)} de tara).`
+      : `Disponible para las cajas: ${kg(cap)}.`;
+    if (!anyWeight) el.textContent += ' Indica el peso de cada caja para aplicar el límite.';
+  }
+
   const ROT_OPTIONS = [
-    ['all', 'Libre (6 orientaciones)'],
-    ['upright', 'Solo girar sobre la base'],
+    ['all', 'Libre'],
+    ['upright', 'Sobre su base'],
     ['none', 'Sin rotar']
   ];
 
@@ -167,6 +194,7 @@
         </div>
         <div class="type-opts">
           <label><span>${fixed ? 'Cantidad' : 'Máximo'}</span><input type="number" min="0" step="1" inputmode="numeric" data-k="qty" value="${t.qty === '' ? '' : t.qty}" placeholder="${fixed ? '0' : 'Sin límite'}"></label>
+          <label title="Peso de una caja en kg"><span>Peso (kg)</span><input type="number" min="0" step="any" inputmode="decimal" data-k="weight" value="${t.weight === '' || t.weight == null ? '' : t.weight}" placeholder="—"></label>
           <label><span>Rotación</span><select data-k="rot">${ROT_OPTIONS.map(([v, l]) => `<option value="${v}" ${t.rot === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         </div>
         <label class="check small type-nostack" title="No se colocará ninguna caja encima de las de este tipo">
@@ -190,6 +218,7 @@
         const fits = Packer.orientationsFor(t).some(o => o[0] <= C.w * (1 + 1e-9) && o[1] <= C.h * (1 + 1e-9) && o[2] <= C.d * (1 + 1e-9));
         if (!fits) msg = t.rot === 'all' ? 'No cabe en el contenedor en ninguna orientación.' : 'No cabe con las rotaciones permitidas.';
       }
+      if (!msg && +t.weight > weightCap()) msg = `Pesa más que el peso disponible (${kg(weightCap())}): no se podrá incluir.`;
       warn.textContent = msg;
       warn.hidden = !msg;
       for (const k of ['w', 'h', 'd']) $(`[data-k="${k}"]`, el).classList.toggle('invalid', !(t[k] > 0));
@@ -220,6 +249,19 @@
     $('#objective').addEventListener('change', e => { config.objective = e.target.value; markStale(); });
     $('#support').addEventListener('change', e => { config.support = +e.target.value; markStale(); });
     $('#time').addEventListener('change', e => { config.time = +e.target.value; saveSoon(); });
+    const onWeight = () => {
+      const mw = $('#c-maxw').value, ta = $('#c-tare').value;
+      config.maxWeight = mw === '' || !(+mw > 0) ? '' : +mw;
+      config.tare = ta === '' || !(+ta > 0) ? '' : +ta;
+      renderWeightInfo(); validateTypes(); markStale();
+    };
+    $('#c-maxw').addEventListener('input', onWeight);
+    $('#c-tare').addEventListener('input', onWeight);
+    $('#weight-presets').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      $('#c-maxw').value = b.dataset.w;
+      onWeight();
+    });
 
     $('#btn-add-type').addEventListener('click', () => {
       const used = new Set(config.types.map(t => t.color));
@@ -238,6 +280,7 @@
       const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
       if (k === 'w' || k === 'h' || k === 'd') t[k] = parseFloat(v) || 0;
       else if (k === 'qty') t.qty = v === '' ? '' : Math.max(0, Math.floor(+v || 0));
+      else if (k === 'weight') { t.weight = v === '' || !(+v > 0) ? '' : +v; renderWeightInfo(); }
       else t[k] = v;
       if (k === 'enabled') card.classList.toggle('disabled', !t.enabled);
       if (k === 'color') {
@@ -285,6 +328,7 @@
     const active = config.types.filter(t => t.enabled);
     if (!active.length) return 'Añade o activa al menos un tipo de caja.';
     if (active.some(t => !(t.w > 0 && t.h > 0 && t.d > 0))) return 'Revisa las medidas de las cajas: deben ser mayores que 0.';
+    if (config.maxWeight > 0 && (+config.tare || 0) >= config.maxWeight) return 'La tara del contenedor es igual o mayor que el peso máximo: no queda peso disponible para las cajas.';
     if (config.mode === 'fixed' && !active.some(t => +t.qty > 0)) return 'En modo "Cantidad fija" indica cuántas cajas quieres de al menos un tipo.';
     return null;
   }
@@ -380,11 +424,13 @@
       unit: config.unit,
       container: Object.assign({}, config.container),
       mode: config.mode, objective: config.objective, support: config.support,
-      types: config.types.map(t => ({ id: t.id, name: t.name, color: t.color, w: t.w, h: t.h, d: t.d, qty: t.qty, rot: t.rot, enabled: t.enabled, noStack: !!t.noStack }))
+      maxWeight: config.maxWeight, tare: config.tare,
+      types: config.types.map(t => ({ id: t.id, name: t.name, color: t.color, w: t.w, h: t.h, d: t.d, qty: t.qty, rot: t.rot, enabled: t.enabled, noStack: !!t.noStack, weight: +t.weight || 0 }))
     };
     const input = {
       container: snapshot.container, mode: config.mode, objective: config.objective, support: config.support,
-      types: snapshot.types.map(t => ({ w: t.w, h: t.h, d: t.d, rot: t.rot, enabled: t.enabled, noStack: t.noStack, qty: t.qty === '' ? null : +t.qty }))
+      maxWeight: +config.maxWeight || 0, tare: +config.tare || 0,
+      types: snapshot.types.map(t => ({ w: t.w, h: t.h, d: t.d, rot: t.rot, enabled: t.enabled, noStack: t.noStack, weight: t.weight, qty: t.qty === '' ? null : +t.qty }))
     };
     const budget = config.time * 1000;
     const btn = $('#btn-run');
@@ -417,6 +463,25 @@
 
   // ---- Resultados ------------------------------------------------------------
 
+  // Texto del centro de gravedad de un resultado.
+  function cogText(res, S, u) {
+    const c = res.cog;
+    if (!c) return '';
+    const off = res.cogOffset || 0;
+    return `Centro de gravedad a ${fmt(c.y)} ${u} de altura (${pct(c.y / S.container.h)} del alto) · ` +
+      (off < Math.max(S.container.w, S.container.d) * 0.01 ? 'centrado' : `desviado ${fmt(off)} ${u} del centro`);
+  }
+
+  function weightLines(res, S, u) {
+    const tare = res.tare || 0;
+    if (!(res.weight > 0) && res.maxWeight == null) return '';
+    let t = `Peso: ${kg(res.weight)} de cajas`;
+    if (tare > 0) t += ` + ${kg(tare)} de tara = ${kg(res.weight + tare)}`;
+    if (res.maxWeight != null) t += ` · ${pct((res.weight + tare) / res.maxWeight)} del máximo (${kg(res.maxWeight)})`;
+    const c = cogText(res, S, u);
+    return `<p class="hint">${t}${c ? `<br>${c}` : ''}</p>`;
+  }
+
   function renderResults() {
     const box = $('#results');
     $('#stale').hidden = !(result && stale);
@@ -426,6 +491,9 @@
     }
     const S = result.snapshot, u = unitName(S.unit), fixed = S.mode === 'fixed';
     const V = result.containerVolume;
+    const hasW = S.types.some(t => t.enabled && t.weight > 0);
+    const maxW = result.maxWeight, tare = result.tare || 0;
+    const capW = maxW != null ? Math.max(0, maxW - tare) : Infinity;
     const segs = S.types.map((t, i) => {
       const v = result.placed[i] * t.w * t.h * t.d;
       return v > 0 ? `<i style="width:${v / V * 100}%;background:${t.color}" title="${esc(t.name)}"></i>` : '';
@@ -439,6 +507,7 @@
         <td class="num">${fmt(t.w)}×${fmt(t.h)}×${fmt(t.d)}</td>
         <td class="num"><b>${fmt(result.placed[i], 0)}</b></td>
         <td class="num">${reqTxt}</td>
+        ${hasW ? `<td class="num">${t.weight > 0 ? fmt(result.placed[i] * t.weight, 1) : '—'}</td>` : ''}
       </tr>`;
     }).join('');
 
@@ -446,29 +515,39 @@
     S.types.forEach((t, i) => {
       if (!t.enabled) return;
       if (!result.fits[i]) notes.push(['warn', `${esc(t.name)} no cabe en el contenedor con las rotaciones permitidas.`]);
+      else if (result.tooHeavy && result.tooHeavy[i]) notes.push(['warn', `${esc(t.name)} pesa ${kg(t.weight)}, más que el peso disponible (${kg(capW)}): no se puede incluir.`]);
       const req = result.requested[i];
-      if (fixed && req != null && isFinite(req) && result.placed[i] < req && result.fits[i]) {
-        notes.push(['warn', `No se han podido colocar ${fmt(req - result.placed[i], 0)} × ${esc(t.name)}.`]);
+      if (fixed && req != null && isFinite(req) && result.placed[i] < req && result.fits[i] && !(result.tooHeavy && result.tooHeavy[i])) {
+        const byWeight = isFinite(capW) && t.weight > 0 && capW - result.weight < t.weight - 1e-9;
+        notes.push(['warn', `No se han podido colocar ${fmt(req - result.placed[i], 0)} × ${esc(t.name)} ${byWeight ? 'por el límite de peso' : 'por falta de espacio'}.`]);
       }
     });
+    if (!fixed && isFinite(capW)) {
+      const lightest = Math.min(...S.types.filter((t, i) => t.enabled && t.weight > 0 && result.fits[i]).map(t => t.weight));
+      if (isFinite(lightest) && capW - result.weight < lightest - 1e-9) {
+        notes.push(['info', `El límite de peso es lo que limita la carga (quedan ${kg(capW - result.weight)} libres).`]);
+      }
+    }
     const allFixedPlaced = fixed && S.types.every((t, i) => !t.enabled || !(result.requested[i] > 0) || result.placed[i] >= result.requested[i]);
     if (fixed && allFixedPlaced) notes.push(['ok', 'Caben todas las cajas solicitadas.']);
     if (!fixed && result.boundReached) notes.push(['ok', 'Solución óptima: se ha alcanzado el máximo teórico.']);
     if (!fixed && !result.boundReached && S.objective === 'count' && isFinite(result.countBound)) {
-      notes.push(['info', `Máximo teórico por volumen: ${fmt(result.countBound, 0)} cajas (rara vez alcanzable).`]);
+      notes.push(['info', `Máximo teórico por ${isFinite(capW) ? 'volumen y peso' : 'volumen'}: ${fmt(result.countBound, 0)} cajas (rara vez alcanzable).`]);
     }
     if (result.grouped) notes.push(['info', `Hay muchas cajas: se muestran agrupadas en ${fmt(result.items.length, 0)} bloques.`]);
     if (result.stopped) notes.push(['info', 'Búsqueda detenida manualmente: se muestra la mejor solución encontrada.']);
 
     box.innerHTML = `
-      <div class="kpis">
+      <div class="kpis${hasW || maxW != null ? ' three' : ''}">
         <div class="kpi"><b>${fmt(result.count, 0)}</b><span>cajas colocadas</span></div>
         <div class="kpi"><b>${pct(result.utilization)}</b><span>del volumen ocupado</span></div>
+        ${hasW || maxW != null ? `<div class="kpi${maxW != null && result.weight + tare > maxW * 0.95 ? ' full' : ''}"><b>${fmt(result.weight + tare, 1)} kg</b><span>${maxW != null ? `de ${fmt(maxW, 1)} kg máx.` : 'peso total'}</span></div>` : ''}
       </div>
       <div class="util" aria-hidden="true">${segs}</div>
       <p class="hint">${volText(result.volume, S.unit)} de ${volText(V, S.unit)} · altura usada ${fmt(result.top)} ${u} de ${fmt(S.container.h)} ${u}</p>
+      ${weightLines(result, S, u)}
       <table class="type-table">
-        <thead><tr><th>Tipo</th><th class="num">Medidas</th><th class="num">Colocadas</th><th class="num">${fixed ? 'Pedidas' : 'Máx.'}</th></tr></thead>
+        <thead><tr><th>Tipo</th><th class="num">Medidas</th><th class="num">Colocadas</th><th class="num">${fixed ? 'Pedidas' : 'Máx.'}</th>${hasW ? '<th class="num">kg</th>' : ''}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
       ${notes.length ? `<ul class="notes">${notes.map(([k, t]) => `<li class="${k}">${t}</li>`).join('')}</ul>` : ''}
@@ -526,14 +605,15 @@
   // Resumen de una capa: cajas nuevas por tipo y cajas que continúan.
   function layerCounts(info) {
     const byType = new Map();
-    let nNew = 0, nCont = 0;
+    let nNew = 0, nCont = 0, wNew = 0;
     for (const v of info.visible) {
       const it = result.items[v.i], c = it.count || 1;
       if (v.cont) { nCont += c; continue; }
       nNew += c;
+      wNew += c * (result.snapshot.types[it.t].weight || 0);
       byType.set(it.t, (byType.get(it.t) || 0) + c);
     }
-    return { byType, nNew, nCont };
+    return { byType, nNew, nCont, wNew };
   }
 
   // ---- Vistas ----------------------------------------------------------------
@@ -549,7 +629,7 @@
     else if (Math.abs(it.w - t.w) > 1e-9) orient = '<div>Girada 90° sobre su base</div>';
     return `<b><i style="background:${t.color}"></i>${esc(t.name)}</b>
       <div>${fmt(it.w)} × ${fmt(it.h)} × ${fmt(it.d)} ${u} <span style="opacity:.7">(an × al × fo)</span></div>
-      <div>Posición: X ${fmt(it.x)} · Y ${fmt(it.y)} · Z ${fmt(it.z)}</div>${orient}${t.noStack ? '<div>No apilable: nada encima</div>' : ''}`;
+      <div>Posición: X ${fmt(it.x)} · Y ${fmt(it.y)} · Z ${fmt(it.z)}</div>${orient}${t.weight > 0 ? `<div>Peso: ${kg(t.weight * (it.count || 1))}</div>` : ''}${t.noStack ? '<div>No apilable: nada encima</div>' : ''}`;
   }
 
   function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
@@ -587,8 +667,8 @@
   function onNewResult() {
     renderResults();
     if (viewer && !viewer.failed) {
-      if (result) viewer.setScene(sceneFor(result));
-      else viewer.setScene({ container: config.container, items: [], colors: [], unit: unitName(config.unit), fmt: v => fmt(v) });
+      if (result) { viewer.setScene(sceneFor(result)); viewer.setMarker(result.cog || null); }
+      else { viewer.setScene({ container: config.container, items: [], colors: [], unit: unitName(config.unit), fmt: v => fmt(v) }); viewer.setMarker(null); }
     }
     updateViews(true);
   }
@@ -640,12 +720,13 @@
     const el = $('#layer-summary');
     if (!info) { el.innerHTML = '<span>La vista por capas muestra un corte del contenedor. Usa ‹ › o las flechas del teclado para recorrerlas.</span>'; return; }
     const S = result.snapshot, u = unitName(S.unit);
-    const { byType, nNew, nCont } = layerCounts(info);
+    const { byType, nNew, nCont, wNew } = layerCounts(info);
     const chips = [...byType.entries()].map(([t, n]) =>
       `<span class="chip"><span class="dot" style="background:${S.types[t].color}"></span><b>${fmt(n, 0)}×</b> ${esc(S.types[t].name)}</span>`).join('');
     const thick = info.L.hi - info.L.lo;
     el.innerHTML = `<span class="chip"><b>${fmt(nNew, 0)}</b> nuevas en esta capa</span>${chips}` +
       (nCont ? `<span class="chip"><span class="hatch"></span><b>${fmt(nCont, 0)}</b> vienen de capas anteriores</span>` : '') +
+      (wNew > 0 ? `<span class="chip">Peso de la capa: <b>${kg(wNew)}</b></span>` : '') +
       `<span class="chip">Espesor hasta la siguiente capa: <b>${fmt(thick)} ${u}</b></span>`;
   }
 
@@ -769,7 +850,7 @@
     if (!result) { showMsg('Calcula primero una distribución para poder exportarla.', 'error'); return; }
     Exporter.open({
       result, ui, viewer: viewer && !viewer.failed ? viewer : null,
-      getLayers, layerAt, layerCounts, fmt, unitName, volText, pct, stale,
+      getLayers, layerAt, layerCounts, fmt, unitName, volText, pct, stale, cogText, kg,
       axisText: AXIS_TEXT
     });
   });

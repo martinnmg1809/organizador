@@ -70,9 +70,9 @@
     for (const l of img.labels) {
       const lx = x + l.x * k, ly = y + l.y * k;
       if (lx < x + 10 || lx > x + w - 10 || ly < y + 6 || ly > y + h - 6) continue;
-      const tw = p.measure(l.text, 7.5, false);
-      p.fillRect(lx - tw / 2 - 3, ly - 5.5, tw + 6, 11, '#ffffff', 0.85);
-      p.text(l.text, lx, ly, { size: 7.5, color: MUTED, align: 'center', baseline: 'middle' });
+      const cg = l.text === 'CG', tw = p.measure(l.text, 7.5, cg);
+      p.fillRect(lx - tw / 2 - 3, ly - 5.5, tw + 6, 11, cg ? '#db2777' : '#ffffff', cg ? 1 : 0.85);
+      p.text(l.text, lx, ly, { size: 7.5, bold: cg, color: cg ? '#ffffff' : MUTED, align: 'center', baseline: 'middle' });
     }
   }
 
@@ -113,7 +113,7 @@
       const img = render3D(o, info, pxW, pxH);
       if (img) { await place3D(p, putImage, img, pxW, pxH, cx, y, colW, ih); y += ih + 18; }
     }
-    const { byType, nNew, nCont } = ctx.layerCounts(info);
+    const { byType, nNew, nCont, wNew } = ctx.layerCounts(info);
     p.text('En esta capa', cx, y, { size: 11, bold: true, color: INK, baseline: 'top' });
     y += 20;
     p.text(`${f(nNew, 0)} ${nNew === 1 ? 'caja nueva' : 'cajas nuevas'}`, cx, y, { size: 9.5, color: MUTED, baseline: 'top' });
@@ -123,8 +123,12 @@
       const T = S.types[t];
       p.fillRect(cx, y + 1, 10, 10, T.color);
       p.text(fitText(p, `${f(c, 0)} × ${T.name}`, 10, true, colW - 16), cx + 16, y, { size: 10, bold: true, color: INK, baseline: 'top' });
-      p.text(`${f(T.w)} × ${f(T.h)} × ${f(T.d)} ${u}${T.noStack ? ' · no apilable' : ''}`, cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
+      p.text(`${f(T.w)} × ${f(T.h)} × ${f(T.d)} ${u}${T.weight > 0 ? ' · ' + ctx.kg(T.weight) + ' c/u' : ''}${T.noStack ? ' · no apilable' : ''}`, cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
       y += 30;
+    }
+    if (wNew > 0) {
+      p.text(`Peso de esta capa: ${ctx.kg(wNew)}`, cx, y, { size: 9.5, bold: true, color: INK, baseline: 'top' });
+      y += 20;
     }
     if (nCont) {
       y += 2;
@@ -158,6 +162,7 @@
     section('Configuración');
     const supportTxt = S.support > 0 ? `${f(S.support * 100, 0)} % de la base` : 'sin restricción';
     line(`${S.mode === 'fixed' ? 'Cantidad fija' : 'Maximizar cantidad'} · priorizar ${S.objective === 'count' ? 'número de cajas' : 'volumen ocupado'} · apoyo mínimo: ${supportTxt}`);
+    if (R.maxWeight != null) line(`Peso máximo: ${ctx.kg(R.maxWeight)}${R.tare > 0 ? ` (incluida la tara del contenedor: ${ctx.kg(R.tare)})` : ''}`);
     y += 8;
 
     // Indicadores
@@ -167,7 +172,13 @@
       [ctx.pct(R.utilization), 'del volumen ocupado'],
       [`${f(R.top)} ${u}`, `de altura usada (de ${f(S.container.h)})`]
     ];
-    const kw = Math.min(150, (colW - 16) / 3);
+    const hasW = R.weight > 0 || R.maxWeight != null;
+    if (hasW) {
+      kpis[1][1] = 'del volumen';
+      kpis[2][1] = `altura (de ${f(S.container.h)})`;
+      kpis.push([`${f(R.weight + (R.tare || 0), 1)} kg`, R.maxWeight != null ? `de ${f(R.maxWeight, 1)} kg máx.` : 'peso total']);
+    }
+    const kw = Math.min(150, (colW - 8 * (kpis.length - 1)) / kpis.length);
     kpis.forEach(([v, l], i) => {
       const x = M + i * (kw + 8);
       p.fillRect(x, y, kw, 46, '#f4f6f9');
@@ -175,7 +186,9 @@
       p.text(v, x + 10, y + 8, { size: 16, bold: true, color: INK, baseline: 'top' });
       p.text(fitText(p, l, 8.5, false, kw - 16), x + 10, y + 30, { size: 8.5, color: MUTED, baseline: 'top' });
     });
-    y += 60;
+    y += 58;
+    const cog = ctx.cogText(R, S, u);
+    if (cog) { line(cog, { size: 9.5, color: MUTED }); y += 4; } else y += 2;
 
     // Tabla de tipos
     const cols = [M, M + colW * 0.46, M + colW * 0.76, colW + M];
@@ -193,7 +206,7 @@
       const req = R.requested[i];
       p.fillRect(cols[0], y + 1, 9, 9, t.color);
       p.text(fitText(p, t.name + (t.noStack ? ' (no apilable)' : ''), 10, true, cols[1] - cols[0] - 22), cols[0] + 15, y, { size: 10, bold: true, color: INK, baseline: 'top' });
-      p.text(`${f(t.w)} × ${f(t.h)} × ${f(t.d)}`, cols[1], y, { size: 10, color: INK, baseline: 'top' });
+      p.text(`${f(t.w)} × ${f(t.h)} × ${f(t.d)}${t.weight > 0 ? ` · ${f(t.weight)} kg` : ''}`, cols[1], y, { size: 10, color: INK, baseline: 'top' });
       p.text(f(R.placed[i], 0), cols[2] + 40, y, { size: 10, bold: true, color: INK, align: 'right', baseline: 'top' });
       p.text(req == null || !isFinite(req) ? '—' : f(req, 0), cols[3], y, { size: 10, color: MUTED, align: 'right', baseline: 'top' });
       y += 17;
@@ -213,7 +226,8 @@
         `${AXIS_NAMES[o.axis]}: ${layers.length} ${layers.length === 1 ? 'capa' : 'capas'}, ordenadas ${ctx.axisText[o.axis].dir}.`,
         'Cada página muestra el corte de una capa con las medidas en ' + u + '.',
         'Las cajas rayadas empiezan en una capa anterior y ya están colocadas.',
-        o.with3d && ctx.viewer ? 'En la vista 3D, la capa actual va en color y las anteriores en gris.' : ''
+        o.with3d && ctx.viewer ? 'En la vista 3D, la capa actual va en color y las anteriores en gris.' : '',
+        R.cog && o.with3d && ctx.viewer ? 'La marca rosa «CG» indica el centro de gravedad de la carga.' : ''
       ].filter(Boolean);
       for (const t of tips) { if (y > H - 50) break; line('• ' + t, { size: 9.5, color: MUTED }); }
     }

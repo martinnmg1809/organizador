@@ -42,6 +42,19 @@
           <label><span>Fondo <em>Z</em></span><input type="number" id="c-d" min="0" step="any" inputmode="decimal"></label>
         </div>
         <p class="hint" id="c-vol"></p>
+        <div class="weight">
+          <div class="dims two">
+            <label><span>Peso máximo <em>kg</em></span><input type="number" id="c-maxw" min="0" step="any" inputmode="decimal" placeholder="Sin límite"></label>
+            <label title="Peso del contenedor vacío, que también se carga"><span>Tara (vacío) <em>kg</em></span><input type="number" id="c-tare" min="0" step="any" inputmode="decimal" placeholder="0"></label>
+          </div>
+          <div class="presets" id="weight-presets" role="group" aria-label="Límites legales de carga manual en Chile">
+            <span class="presets-label">Carga manual en Chile:</span>
+            <button type="button" class="chip-btn" data-w="25" title="Código del Trabajo, art. 211-H: máximo para trabajadores en general">25 kg · general</button>
+            <button type="button" class="chip-btn" data-w="20" title="Código del Trabajo, art. 211-J: máximo para mujeres y menores de 18 años">20 kg · mujeres y menores de 18</button>
+            <button type="button" class="chip-btn" data-w="" title="Quitar el límite de peso">Sin límite</button>
+          </div>
+          <p class="hint" id="w-info"></p>
+        </div>
       </section>
 
       <section class="card">

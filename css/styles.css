@@ -153,6 +153,16 @@ button, input, select { font: inherit; color: inherit; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 
 .hint { margin: 8px 0 0; font-size: 12.5px; color: var(--text-2); }
+.weight { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.dims.two { grid-template-columns: 1fr 1fr; }
+.presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.presets-label { font-size: 12px; color: var(--text-2); font-weight: 550; }
+.chip-btn {
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+  border-radius: 20px; padding: 3px 10px; font-size: 12px; font-weight: 550; cursor: pointer;
+}
+.chip-btn:hover { background: var(--surface-2); }
+.chip-btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .empty { margin: 0; color: var(--text-2); font-size: 13px; }
 
 input[type="number"], input[type="text"], select {
@@ -194,7 +204,7 @@ select { padding-right: 4px; }
 .type-color::-moz-color-swatch { border: 0; border-radius: 4px; }
 .type-dims { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .type-dims label { display: flex; flex-direction: column; gap: 2px; }
-.type-opts { display: grid; grid-template-columns: 1fr 1.4fr; gap: 6px; }
+.type-opts { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 6px; }
 .type-warn { font-size: 12px; color: var(--danger); }
 .type-nostack { align-self: flex-start; }
 .tag {
@@ -236,6 +246,9 @@ select { padding-right: 4px; }
 
 /* ---------- Resultados ---------- */
 .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kpis.three { grid-template-columns: 1fr 1fr 1fr; }
+.kpis.three .kpi b { font-size: 19px; }
+.kpi.full { border-color: var(--warn); background: var(--warn-soft); }
 .kpi { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 .kpi b { display: block; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .kpi span { font-size: 12px; color: var(--text-2); }
@@ -335,6 +348,7 @@ select { padding-right: 4px; }
 .v3d-label.x { color: #dc2626; }
 .v3d-label.y { color: #16a34a; }
 .v3d-label.z { color: #2563eb; }
+.v3d-label.cg { color: #fff; background: #db2777; font-size: 10.5px; }
 .nogl { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--text-2); }
 
 .tooltip {

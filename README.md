@@ -22,6 +22,15 @@ siempre que mantengas juntos `index.html`, `css/` y `js/`.
   (la columna sobre ellas queda libre hasta el techo), aunque ellas sí pueden ir encima
   de otras. Para cajas frágiles que además deban ir de pie, combínalo con
   "Solo girar sobre la base".
+- **Peso**: cada tipo de caja puede tener un peso (kg) y el contenedor un **peso máximo** y
+  una **tara** (su peso vacío). Botones rápidos con los límites legales de carga manual en
+  Chile: **25 kg** (Código del Trabajo, art. 211-H) y **20 kg** para mujeres y menores de
+  18 años (art. 211-J); las trabajadoras embarazadas no pueden realizar carga manual
+  (art. 211-I). El cálculo:
+  - nunca supera el peso disponible (máximo − tara) y elige las cajas que más aportan por kg;
+  - coloca las cajas más densas abajo y, entre soluciones igual de buenas, prefiere la de
+    centro de gravedad más bajo y centrado (más estable y cómoda de cargar);
+  - muestra el peso total, el peso de cada capa y el centro de gravedad (marca «CG» en 3D).
 - **Modos**
   - *Maximizar cantidad*: mete tantas cajas como quepan (el campo "Máximo" es opcional).
   - *Cantidad fija*: intenta colocar las cantidades indicadas y, si caben todas,
