@@ -93,7 +93,8 @@
         qty: t.qty === '' || t.qty == null || !isFinite(+t.qty) ? '' : Math.max(0, Math.floor(+t.qty)),
         rot: ['all', 'upright', 'none'].includes(t.rot) ? t.rot : 'all',
         color: /^#[0-9a-f]{6}$/i.test(t.color) ? t.color : PALETTE[i % PALETTE.length],
-        enabled: t.enabled !== false
+        enabled: t.enabled !== false,
+        noStack: !!t.noStack
       })) : d.types,
       mode: c.mode === 'fixed' ? 'fixed' : 'max',
       objective: c.objective === 'count' ? 'count' : 'volume',
@@ -168,6 +169,9 @@
           <label><span>${fixed ? 'Cantidad' : 'Máximo'}</span><input type="number" min="0" step="1" inputmode="numeric" data-k="qty" value="${t.qty === '' ? '' : t.qty}" placeholder="${fixed ? '0' : 'Sin límite'}"></label>
           <label><span>Rotación</span><select data-k="rot">${ROT_OPTIONS.map(([v, l]) => `<option value="${v}" ${t.rot === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         </div>
+        <label class="check small type-nostack" title="No se colocará ninguna caja encima de las de este tipo">
+          <input type="checkbox" data-k="noStack" ${t.noStack ? 'checked' : ''}> No apilable (nada encima)
+        </label>
         <div class="type-warn" hidden></div>`;
       wrap.appendChild(el);
     });
@@ -376,11 +380,11 @@
       unit: config.unit,
       container: Object.assign({}, config.container),
       mode: config.mode, objective: config.objective, support: config.support,
-      types: config.types.map(t => ({ id: t.id, name: t.name, color: t.color, w: t.w, h: t.h, d: t.d, qty: t.qty, rot: t.rot, enabled: t.enabled }))
+      types: config.types.map(t => ({ id: t.id, name: t.name, color: t.color, w: t.w, h: t.h, d: t.d, qty: t.qty, rot: t.rot, enabled: t.enabled, noStack: !!t.noStack }))
     };
     const input = {
       container: snapshot.container, mode: config.mode, objective: config.objective, support: config.support,
-      types: snapshot.types.map(t => ({ w: t.w, h: t.h, d: t.d, rot: t.rot, enabled: t.enabled, qty: t.qty === '' ? null : +t.qty }))
+      types: snapshot.types.map(t => ({ w: t.w, h: t.h, d: t.d, rot: t.rot, enabled: t.enabled, noStack: t.noStack, qty: t.qty === '' ? null : +t.qty }))
     };
     const budget = config.time * 1000;
     const btn = $('#btn-run');
@@ -431,7 +435,7 @@
       const req = result.requested[i];
       const reqTxt = req == null || req === Infinity || req === null ? '—' : fmt(req, 0);
       return `<tr>
-        <td><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</td>
+        <td><span class="dot" style="background:${t.color}"></span>${esc(t.name)}${t.noStack ? ' <span class="tag" title="No apilable: nada encima">no apilable</span>' : ''}</td>
         <td class="num">${fmt(t.w)}×${fmt(t.h)}×${fmt(t.d)}</td>
         <td class="num"><b>${fmt(result.placed[i], 0)}</b></td>
         <td class="num">${reqTxt}</td>
@@ -545,7 +549,7 @@
     else if (Math.abs(it.w - t.w) > 1e-9) orient = '<div>Girada 90° sobre su base</div>';
     return `<b><i style="background:${t.color}"></i>${esc(t.name)}</b>
       <div>${fmt(it.w)} × ${fmt(it.h)} × ${fmt(it.d)} ${u} <span style="opacity:.7">(an × al × fo)</span></div>
-      <div>Posición: X ${fmt(it.x)} · Y ${fmt(it.y)} · Z ${fmt(it.z)}</div>${orient}`;
+      <div>Posición: X ${fmt(it.x)} · Y ${fmt(it.y)} · Z ${fmt(it.z)}</div>${orient}${t.noStack ? '<div>No apilable: nada encima</div>' : ''}`;
   }
 
   function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }

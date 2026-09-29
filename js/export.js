@@ -123,7 +123,7 @@
       const T = S.types[t];
       p.fillRect(cx, y + 1, 10, 10, T.color);
       p.text(fitText(p, `${f(c, 0)} × ${T.name}`, 10, true, colW - 16), cx + 16, y, { size: 10, bold: true, color: INK, baseline: 'top' });
-      p.text(`${f(T.w)} × ${f(T.h)} × ${f(T.d)} ${u}`, cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
+      p.text(`${f(T.w)} × ${f(T.h)} × ${f(T.d)} ${u}${T.noStack ? ' · no apilable' : ''}`, cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
       y += 30;
     }
     if (nCont) {
@@ -192,7 +192,7 @@
       if (y > H - 110) return;
       const req = R.requested[i];
       p.fillRect(cols[0], y + 1, 9, 9, t.color);
-      p.text(fitText(p, t.name, 10, true, cols[1] - cols[0] - 22), cols[0] + 15, y, { size: 10, bold: true, color: INK, baseline: 'top' });
+      p.text(fitText(p, t.name + (t.noStack ? ' (no apilable)' : ''), 10, true, cols[1] - cols[0] - 22), cols[0] + 15, y, { size: 10, bold: true, color: INK, baseline: 'top' });
       p.text(`${f(t.w)} × ${f(t.h)} × ${f(t.d)}`, cols[1], y, { size: 10, color: INK, baseline: 'top' });
       p.text(f(R.placed[i], 0), cols[2] + 40, y, { size: 10, bold: true, color: INK, align: 'right', baseline: 'top' });
       p.text(req == null || !isFinite(req) ? '—' : f(req, 0), cols[3], y, { size: 10, color: MUTED, align: 'right', baseline: 'top' });

@@ -49,7 +49,8 @@ function OrganizadorPacker() {
       const oris = orientationsFor(t).filter(o => o[0] <= C.w + EPS && o[1] <= C.h + EPS && o[2] <= C.d + EPS);
       return {
         index: i, vol: t.w * t.h * t.d, qty, oris,
-        minSide: Math.min(t.w, t.h, t.d), fits: oris.length > 0
+        minSide: Math.min(t.w, t.h, t.d), fits: oris.length > 0,
+        noStack: !!t.noStack   // no se puede colocar nada encima
       };
     });
     const active = types.filter(t => t.qty > 0 && t.fits);
@@ -113,7 +114,8 @@ function OrganizadorPacker() {
     for (const t of P.active) if (st.rem[t.index] > 0 && t.minSide < minSide) minSide = t.minSide;
     const big = s => s.x1 - s.x0 >= minSide - EPS && s.y1 - s.y0 >= minSide - EPS && s.z1 - s.z0 >= minSide - EPS;
 
-    const X1 = b.x + b.bx, Y1 = b.y + b.by, Z1 = b.z + b.bz;
+    // Sobre una caja no apilable se reserva toda la columna hasta el techo.
+    const X1 = b.x + b.bx, Y1 = P.types[b.t].noStack ? P.H : b.y + b.by, Z1 = b.z + b.bz;
     const keep = [], fresh = [];
     for (const s of st.spaces) {
       if (s.x0 >= X1 - EPS || s.x1 <= b.x + EPS || s.y0 >= Y1 - EPS || s.y1 <= b.y + EPS ||
@@ -162,7 +164,8 @@ function OrganizadorPacker() {
       for (const o of t.oris) {
         const dx = o[0], dy = o[1], dz = o[2];
         if (dx > sx + EPS || dy > sy + EPS || dz > sz + EPS) continue;
-        const nx = Math.floor((sx + EPS) / dx), ny = Math.floor((sy + EPS) / dy), nz = Math.floor((sz + EPS) / dz);
+        const nx = Math.floor((sx + EPS) / dx), nz = Math.floor((sz + EPS) / dz);
+        const ny = t.noStack ? 1 : Math.floor((sy + EPS) / dy);
         const shapes = [
           fitShape(nx, ny, nz, q), fitShape(nx, 1, nz, q), fitShape(nx, 1, 1, q),
           fitShape(1, 1, nz, q), [1, Math.min(ny, q), 1], [1, 1, 1]
@@ -220,13 +223,27 @@ function OrganizadorPacker() {
     return true;
   }
 
+  // Una caja no apilable no puede tener nada encima (ni ya colocado).
+  function columnFree(P, st, x, y, z, c) {
+    if (!P.types[c.t].noStack) return true;
+    const top = y + c.by;
+    for (const b of st.blocks) {
+      if (b.y < top - EPS) continue;
+      if (Math.min(x + c.bx, b.x + b.bx) - Math.max(x, b.x) > EPS &&
+          Math.min(z + c.bz, b.z + b.bz) - Math.max(z, b.z) > EPS) return false;
+    }
+    return true;
+  }
+
   function findPosition(P, st, s, c) {
-    if (P.support <= 0 || s.y0 <= EPS) return { x: s.x0, z: s.z0 };
+    const needSupport = P.support > 0 && s.y0 > EPS;
+    const noStack = P.types[c.t].noStack;
+    if (!needSupport && !noStack) return { x: s.x0, z: s.z0 };
     const xs = [s.x0], zs = [s.z0];
     if (s.x1 - c.bx > s.x0 + EPS) xs.push(s.x1 - c.bx);
     if (s.z1 - c.bz > s.z0 + EPS) zs.push(s.z1 - c.bz);
     for (const x of xs) for (const z of zs) {
-      if (blockSupported(P, st, x, s.y0, z, c)) return { x, z };
+      if ((!needSupport || blockSupported(P, st, x, s.y0, z, c)) && columnFree(P, st, x, s.y0, z, c)) return { x, z };
     }
     return null;
   }
@@ -437,6 +454,7 @@ function OrganizadorPacker() {
     for (const b of boxes) {
       if (left[b.t] <= 0) continue;
       const near = neighbours(b);
+      if (near.some(p => P.types[p.t].noStack)) continue;
       let y = 0;
       for (const p of near) {
         const top = p.y + p.dy;

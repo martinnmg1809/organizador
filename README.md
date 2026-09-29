@@ -15,7 +15,10 @@ siempre que mantengas juntos `index.html`, `css/` y `js/`.
 
 - **Contenedor**: ancho (X), alto (Y) y fondo (Z), en mm, cm, m o pulgadas.
 - **Tipos de caja**: medidas, color, rotación permitida (libre, solo girar sobre la base
-  o sin rotar) y cantidad.
+  o sin rotar), cantidad y opción **No apilable**: no se coloca nada encima de esas cajas
+  (la columna sobre ellas queda libre hasta el techo), aunque ellas sí pueden ir encima
+  de otras. Para cajas frágiles que además deban ir de pie, combínalo con
+  "Solo girar sobre la base".
 - **Modos**
   - *Maximizar cantidad*: mete tantas cajas como quepan (el campo "Máximo" es opcional).
   - *Cantidad fija*: intenta colocar las cantidades indicadas y, si caben todas,
