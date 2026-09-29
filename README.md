@@ -5,7 +5,10 @@ y la muestra en 3D y por capas.
 
 ## Cómo usarlo
 
-Abre `index.html` con doble clic en cualquier navegador moderno (Chrome, Edge o Firefox).
+**En línea:** <https://martinnmg1809.github.io/organizador/> — funciona en el ordenador,
+la tablet o el móvil, sin instalar nada.
+
+**Sin conexión:** abre `index.html` con doble clic en cualquier navegador moderno (Chrome, Edge o Firefox).
 No hace falta instalar nada, ni un servidor, ni conexión a internet.
 
 La carpeta es autocontenida: puedes copiarla o moverla a donde quieras (otro PC, un USB…)
