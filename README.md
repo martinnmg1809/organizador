@@ -26,6 +26,11 @@ siempre que mantengas juntos `index.html`, `css/` y `js/`.
   (la columna sobre ellas queda libre hasta el techo), aunque ellas sí pueden ir encima
   de otras. Para cajas frágiles que además deban ir de pie, combínalo con
   "Solo girar sobre la base".
+- **Carga máxima encima** (por tipo de caja, en kg): el peso que puede soportar una caja
+  sobre ella. El peso baja en cascada por contacto (repartido según el área de apoyo), así
+  que una caja de abajo carga con todo lo que tiene encima, no solo con la que la toca.
+  Ninguna caja supera su límite y el tooltip muestra la carga que soporta cada una.
+  Requiere indicar el peso de las cajas.
 - **Peso**: cada tipo de caja puede tener un peso (kg) y el contenedor un **peso máximo** y
   una **tara** (su peso vacío). Botones rápidos con los límites legales de carga manual en
   Chile: **25 kg** (Código del Trabajo, art. 211-H) y **20 kg** para mujeres y menores de

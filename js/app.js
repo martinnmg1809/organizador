@@ -127,7 +127,8 @@
         color: /^#[0-9a-f]{6}$/i.test(t.color) ? t.color : PALETTE[i % PALETTE.length],
         enabled: t.enabled !== false,
         noStack: !!t.noStack,
-        weight: optNum(t.weight)
+        weight: optNum(t.weight),
+        maxLoad: t.maxLoad === '' || t.maxLoad == null || !(+t.maxLoad >= 0) ? '' : +t.maxLoad
       })) : d.types,
       maxWeight: optNum(c.maxWeight),
       tare: optNum(c.tare),
@@ -237,9 +238,12 @@
           <label title="${tr('type.weight.title')}"><span>${tr('type.weight')}</span><input type="number" min="0" step="any" inputmode="decimal" data-k="weight" value="${t.weight === '' || t.weight == null ? '' : t.weight}" placeholder="—"></label>
           <label><span>${tr('type.rot')}</span><select data-k="rot">${ROT_OPTIONS.map(v => `<option value="${v}" ${t.rot === v ? 'selected' : ''}>${tr('rot.' + v)}</option>`).join('')}</select></label>
         </div>
-        <label class="check small type-nostack" title="${tr('type.noStack.title')}">
-          <input type="checkbox" data-k="noStack" ${t.noStack ? 'checked' : ''}> ${tr('type.noStack')}
-        </label>
+        <div class="type-extra">
+          <label title="${tr('type.maxLoad.title')}"><span>${tr('type.maxLoad')}</span><input type="number" min="0" step="any" inputmode="decimal" data-k="maxLoad" value="${t.maxLoad === '' || t.maxLoad == null ? '' : t.maxLoad}" placeholder="${tr('noLimit')}"></label>
+          <label class="check small type-nostack" title="${tr('type.noStack.title')}">
+            <input type="checkbox" data-k="noStack" ${t.noStack ? 'checked' : ''}> ${tr('type.noStack')}
+          </label>
+        </div>
         <div class="type-warn" hidden></div>`;
       wrap.appendChild(el);
     });
@@ -259,6 +263,7 @@
         if (!fits) msg = tr(t.rot === 'all' ? 'type.warn.noFitAll' : 'type.warn.noFitRot');
       }
       if (!msg && +t.weight > weightCap()) msg = tr('type.warn.heavy', { cap: kg(weightCap()) });
+      if (!msg && t.maxLoad !== '' && t.maxLoad != null && !config.types.some(x => x.enabled && +x.weight > 0)) msg = tr('type.warn.loadNoWeight');
       warn.textContent = msg;
       warn.hidden = !msg;
       for (const k of ['w', 'h', 'd']) $(`[data-k="${k}"]`, el).classList.toggle('invalid', !(t[k] > 0));
@@ -327,6 +332,7 @@
       if (k === 'w' || k === 'h' || k === 'd') t[k] = parseFloat(v) || 0;
       else if (k === 'qty') t.qty = v === '' ? '' : Math.max(0, Math.floor(+v || 0));
       else if (k === 'weight') { t.weight = v === '' || !(+v > 0) ? '' : +v; renderWeightInfo(); }
+      else if (k === 'maxLoad') t.maxLoad = v === '' || !(+v >= 0) ? '' : +v;
       else t[k] = v;
       if (k === 'enabled') card.classList.toggle('disabled', !t.enabled);
       if (k === 'color') {
@@ -473,13 +479,13 @@
       mode: config.mode, objective: config.objective, support: config.support,
       maxWeight: config.maxWeight, tare: config.tare,
       bins: config.mode === 'fixed' ? { auto: config.bins.auto, n: config.bins.n } : { auto: false, n: config.bins.n },
-      types: config.types.map(t => ({ id: t.id, name: t.name, color: t.color, w: t.w, h: t.h, d: t.d, qty: t.qty, rot: t.rot, enabled: t.enabled, noStack: !!t.noStack, weight: +t.weight || 0 }))
+      types: config.types.map(t => ({ id: t.id, name: t.name, color: t.color, w: t.w, h: t.h, d: t.d, qty: t.qty, rot: t.rot, enabled: t.enabled, noStack: !!t.noStack, weight: +t.weight || 0, maxLoad: t.maxLoad === '' || t.maxLoad == null ? '' : +t.maxLoad }))
     };
     const input = {
       container: snapshot.container, mode: config.mode, objective: config.objective, support: config.support,
       maxWeight: +config.maxWeight || 0, tare: +config.tare || 0,
       bins: snapshot.bins,
-      types: snapshot.types.map(t => ({ w: t.w, h: t.h, d: t.d, rot: t.rot, enabled: t.enabled, noStack: t.noStack, weight: t.weight, qty: t.qty === '' ? null : +t.qty }))
+      types: snapshot.types.map(t => ({ w: t.w, h: t.h, d: t.d, rot: t.rot, enabled: t.enabled, noStack: t.noStack, weight: t.weight, maxLoad: t.maxLoad, qty: t.qty === '' ? null : +t.qty }))
     };
     const budget = config.time * 1000;
     const btn = $('#btn-run');
@@ -571,7 +577,7 @@
       const req = R.requested[i];
       const reqTxt = req == null || req === Infinity || req === null ? '—' : fmt(req, 0);
       return `<tr>
-        <td><span class="dot" style="background:${t.color}"></span>${esc(t.name)}${t.noStack ? ` <span class="tag" title="${tr('tag.noStack.title')}">${tr('tag.noStack')}</span>` : ''}</td>
+        <td><span class="dot" style="background:${t.color}"></span>${esc(t.name)}${t.noStack ? ` <span class="tag" title="${tr('tag.noStack.title')}">${tr('tag.noStack')}</span>` : ''}${t.maxLoad !== '' && t.maxLoad != null && t.weight !== undefined ? ` <span class="tag load" title="${tr('tag.maxLoad.title')}">${tr('tag.maxLoad', { w: kg(+t.maxLoad) })}</span>` : ''}</td>
         <td class="num">${fmt(t.w)}×${fmt(t.h)}×${fmt(t.d)}</td>
         <td class="num"><b>${fmt(R.placed[i], 0)}</b></td>
         <td class="num">${reqTxt}</td>
@@ -748,6 +754,7 @@
       <div>${fmt(it.w)} × ${fmt(it.h)} × ${fmt(it.d)} ${u} <span style="opacity:.7">(${tr('dims.short')})</span></div>
       <div>${tr('tip.pos')}: X ${fmt(it.x)} · Y ${fmt(it.y)} · Z ${fmt(it.z)}</div>${orient}` +
       (t.weight > 0 ? `<div>${tr('tip.weight', { w: kg(t.weight * (it.count || 1)) })}</div>` : '') +
+      (it.load !== undefined && it.load !== null ? `<div>${tr('tip.load', { l: kg(it.load) })}${t.maxLoad !== '' && t.maxLoad != null ? tr('tip.loadOf', { m: kg(+t.maxLoad) }) : ''}</div>` : '') +
       (t.noStack ? `<div>${tr('tag.noStack.title')}</div>` : '');
   }
 

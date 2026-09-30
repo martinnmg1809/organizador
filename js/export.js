@@ -130,7 +130,7 @@
       const T = S.types[t];
       p.fillRect(cx, y + 1, 10, 10, T.color);
       p.text(fitText(p, `${f(c, 0)} × ${T.name}`, 10, true, colW - 16), cx + 16, y, { size: 10, bold: true, color: INK, baseline: 'top' });
-      p.text(`${f(T.w)} × ${f(T.h)} × ${f(T.d)} ${u}${T.weight > 0 ? tr('pdf.perBox', { w: ctx.kg(T.weight) }) : ''}${T.noStack ? tr('pdf.noStack') : ''}`, cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
+      p.text(`${f(T.w)} × ${f(T.h)} × ${f(T.d)} ${u}${T.weight > 0 ? tr('pdf.perBox', { w: ctx.kg(T.weight) }) : ''}${T.maxLoad !== '' && T.maxLoad != null ? tr('pdf.maxLoad', { w: ctx.kg(+T.maxLoad) }) : ''}${T.noStack ? tr('pdf.noStack') : ''}`, cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
       y += 30;
     }
     if (wNew > 0) {
