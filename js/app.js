@@ -40,11 +40,12 @@
       { id: uid(), name: 'Caja pequeña', w: 15, h: 10, d: 15, qty: '', weight: 0.5, rot: 'all', color: PALETTE[2], enabled: true }
     ],
     maxWeight: '', tare: '',
+    bins: { auto: true, n: 1 },
     mode: 'max', objective: 'volume', support: 0.75, time: 3
   });
 
   let config = example();
-  const ui = { view: 'split', axis: 'y', layer: 0, layerMode: false, ghost: 0.12, solidBefore: false };
+  const ui = { view: 'split', axis: 'y', layer: 0, layerMode: false, ghost: 0.12, solidBefore: false, bin: 0 };
   let result = null;       // último resultado (con snapshot de la configuración usada)
   let stale = false;
   let layerCache = {};
@@ -59,7 +60,7 @@
       const data = JSON.parse(raw);
       if (data.config) config = sanitizeConfig(data.config);
       if (data.ui) Object.assign(ui, data.ui);
-      if (data.result && data.result.items) { result = data.result; stale = !!data.stale; }
+      if (data.result && (data.result.bins || data.result.items)) { result = normalizeResult(data.result); stale = !!data.stale; }
     } catch (e) { /* almacenamiento no disponible */ }
   }
 
@@ -77,6 +78,22 @@
     } catch (e) {
       try { localStorage.setItem(STORE_KEY, JSON.stringify(base)); } catch (e2) { /* sin almacenamiento */ }
     }
+  }
+
+  // Los resultados de versiones anteriores (un solo contenedor) se convierten
+  // al formato de varios contenedores.
+  function normalizeResult(r) {
+    if (!r || r.bins) return r;
+    r.bins = [{
+      items: r.items, grouped: r.grouped, count: r.count, volume: r.volume, utilization: r.utilization, top: r.top,
+      placed: r.placed, weight: r.weight || 0, cog: r.cog || null, cogOffset: r.cogOffset || 0,
+      boundReached: r.boundReached, countBound: r.countBound
+    }];
+    delete r.items;
+    Object.assign(r, { multi: true, nBins: 1, auto: false, target: 1, lowerBound: 1, weight: r.weight || 0 });
+    r.leftover = r.requested.map((q, i) => (q == null || !isFinite(q) ? null : Math.max(0, q - r.placed[i])));
+    r.complete = r.leftover.every(q => !q);
+    return r;
   }
 
   function sanitizeConfig(c) {
@@ -101,6 +118,10 @@
       })) : d.types,
       maxWeight: optNum(c.maxWeight),
       tare: optNum(c.tare),
+      bins: {
+        auto: !(c.bins && c.bins.auto === false),
+        n: c.bins && +c.bins.n >= 1 ? Math.min(500, Math.floor(+c.bins.n)) : 1
+      },
       mode: c.mode === 'fixed' ? 'fixed' : 'max',
       objective: c.objective === 'count' ? 'count' : 'volume',
       support: [0, 0.5, 0.75, 1].includes(+c.support) ? +c.support : 0.75,
@@ -126,6 +147,8 @@
     $('#time').value = String(config.time);
     $('#c-maxw').value = config.maxWeight;
     $('#c-tare').value = config.tare;
+    $('#bins-mode').value = config.bins.auto ? 'auto' : 'n';
+    $('#bins-n').value = config.bins.n;
     renderWeightInfo();
     renderModeHint();
     renderContainerInfo();
@@ -134,9 +157,16 @@
 
   function renderModeHint() {
     const fixed = config.mode === 'fixed';
+    const auto = fixed && config.bins.auto;
+    $('#bins-mode-row').hidden = !fixed;
+    $('#bins-n-row').hidden = auto;
     $('#mode-hint').textContent = fixed
-      ? 'Indica cuántas cajas de cada tipo quieres colocar. Si no caben todas, se prioriza según el criterio elegido.'
-      : 'Coloca tantas cajas como quepan. Deja "Máximo" vacío para no limitar un tipo.';
+      ? (auto
+        ? 'Indica cuántas cajas de cada tipo necesitas: se calculará cuántos contenedores hacen falta y cómo va cada uno.'
+        : 'Indica cuántas cajas de cada tipo necesitas: se repartirán en los contenedores indicados y se avisará de las que no quepan.')
+      : (config.bins.n > 1
+        ? 'Coloca tantas cajas como quepan en los contenedores indicados. Deja "Máximo" vacío para no limitar un tipo.'
+        : 'Coloca tantas cajas como quepan. Deja "Máximo" vacío para no limitar un tipo.');
     $('#objective-label').textContent = fixed ? 'Si no caben, priorizar' : 'Priorizar';
   }
 
@@ -247,6 +277,12 @@
       renderModeHint(); renderTypes(); markStale();
     });
     $('#objective').addEventListener('change', e => { config.objective = e.target.value; markStale(); });
+    $('#bins-mode').addEventListener('change', e => { config.bins.auto = e.target.value === 'auto'; renderModeHint(); markStale(); });
+    $('#bins-n').addEventListener('input', e => {
+      const v = Math.floor(+e.target.value);
+      e.target.classList.toggle('invalid', !(v >= 1 && v <= 500));
+      if (v >= 1 && v <= 500) { config.bins.n = v; renderModeHint(); markStale(); }
+    });
     $('#support').addEventListener('change', e => { config.support = +e.target.value; markStale(); });
     $('#time').addEventListener('change', e => { config.time = +e.target.value; saveSoon(); });
     const onWeight = () => {
@@ -347,16 +383,18 @@
       if (m.cmd === 'stop') { stopFlag = true; return; }
       if (m.cmd !== 'start') return;
       stopFlag = false;
-      const solver = new Packer.Solver(m.input);
+      const solver = new Packer.MultiSolver(m.input, m.budget, m.maxItems);
       const t0 = Date.now();
+      let hurried = false;
       const tick = () => {
+        if (stopFlag && !hurried) { solver.hurry(); hurried = true; }
         solver.run(80);
         const el = Date.now() - t0;
-        const sc = solver.bestScore || { n: 0, v: 0 };
-        if (solver.done || stopFlag || el >= m.budget) {
-          self.postMessage({ job: m.job, type: 'done', result: solver.result(m.maxItems), stopped: stopFlag });
+        if (solver.done) {
+          self.postMessage({ job: m.job, type: 'done', result: solver.result(), stopped: stopFlag });
         } else {
-          self.postMessage({ job: m.job, type: 'progress', elapsed: el, count: sc.n, volume: sc.v, iterations: solver.iter });
+          const pr = solver.progress();
+          self.postMessage({ job: m.job, type: 'progress', elapsed: el, count: pr.count, volume: pr.volume, bin: pr.bin, iterations: pr.iterations });
           setTimeout(tick, 0);
         }
       };
@@ -382,17 +420,16 @@
     const id = ++jobSeq;
     const job = { id, stop: () => {} };
     const runLocal = () => {
-      const solver = new Packer.Solver(input);
+      const solver = new Packer.MultiSolver(input, budget, MAX_ITEMS);
       const t0 = performance.now();
       let stopped = false;
-      job.stop = () => { stopped = true; };
+      job.stop = () => { stopped = true; solver.hurry(); };
       const tick = () => {
         if (running !== job) return;
         solver.run(40);
         const el = performance.now() - t0;
-        const sc = solver.bestScore || { n: 0, v: 0 };
-        if (solver.done || stopped || el >= budget) onDone(solver.result(MAX_ITEMS), stopped);
-        else { onProgress({ elapsed: el, count: sc.n, volume: sc.v, iterations: solver.iter }); setTimeout(tick, 0); }
+        if (solver.done) onDone(solver.result(), stopped);
+        else { const pr = solver.progress(); onProgress(Object.assign({ elapsed: el }, pr)); setTimeout(tick, 0); }
       };
       setTimeout(tick, 30);
     };
@@ -425,11 +462,13 @@
       container: Object.assign({}, config.container),
       mode: config.mode, objective: config.objective, support: config.support,
       maxWeight: config.maxWeight, tare: config.tare,
+      bins: config.mode === 'fixed' ? { auto: config.bins.auto, n: config.bins.n } : { auto: false, n: config.bins.n },
       types: config.types.map(t => ({ id: t.id, name: t.name, color: t.color, w: t.w, h: t.h, d: t.d, qty: t.qty, rot: t.rot, enabled: t.enabled, noStack: !!t.noStack, weight: +t.weight || 0 }))
     };
     const input = {
       container: snapshot.container, mode: config.mode, objective: config.objective, support: config.support,
       maxWeight: +config.maxWeight || 0, tare: +config.tare || 0,
+      bins: snapshot.bins,
       types: snapshot.types.map(t => ({ w: t.w, h: t.h, d: t.d, rot: t.rot, enabled: t.enabled, noStack: t.noStack, weight: t.weight, qty: t.qty === '' ? null : +t.qty }))
     };
     const budget = config.time * 1000;
@@ -443,7 +482,10 @@
 
     running = startJob(input, budget, p => {
       $('#progress-bar').style.width = Math.min(100, p.elapsed / budget * 100) + '%';
-      $('#progress-text').textContent = `Buscando… ${fmt(p.elapsed / 1000, 1)} s · mejor: ${fmt(p.count, 0)} cajas (${pct(p.volume / V)})`;
+      const multi = snapshot.bins.auto || snapshot.bins.n > 1;
+      $('#progress-text').textContent = multi
+        ? `Buscando… ${fmt(p.elapsed / 1000, 1)} s · contenedor ${p.bin || 1} · ${fmt(p.count, 0)} cajas colocadas`
+        : `Buscando… ${fmt(p.elapsed / 1000, 1)} s · mejor: ${fmt(p.count, 0)} cajas (${pct(p.volume / V)})`;
     }, (res, stopped) => {
       running = null;
       btn.textContent = 'Calcular distribución';
@@ -456,6 +498,7 @@
       stale = false;
       layerCache = {};
       ui.layer = 0;
+      ui.bin = 0;
       onNewResult();
       save();
     });
@@ -482,6 +525,20 @@
     return `<p class="hint">${t}${c ? `<br>${c}` : ''}</p>`;
   }
 
+  // Contenedor k (resolviendo los idénticos) y agrupación de contenedores iguales.
+  function srcIndex(k) { const b = result && result.bins[k]; return b && b.sameAs != null ? b.sameAs : k; }
+  function binAt(k) { return result ? result.bins[srcIndex(k == null ? ui.bin : k)] : null; }
+  function binGroups() {
+    const groups = [];
+    (result ? result.bins : []).forEach((b, k) => {
+      const src = srcIndex(k), g = groups[groups.length - 1];
+      if (g && g.src === src) g.to = k; else groups.push({ from: k, to: k, src });
+    });
+    return groups;
+  }
+  const isMulti = () => !!result && (result.nBins > 1 || result.auto || (result.target || 1) > 1);
+  const binLabel = g => (g.from === g.to ? `${g.from + 1}` : `${g.from + 1}–${g.to + 1}`);
+
   function renderResults() {
     const box = $('#results');
     $('#stale').hidden = !(result && stale);
@@ -489,99 +546,147 @@
       box.innerHTML = '<p class="empty">Configura el contenedor y las cajas y pulsa <b>Calcular distribución</b>.</p>';
       return;
     }
-    const S = result.snapshot, u = unitName(S.unit), fixed = S.mode === 'fixed';
-    const V = result.containerVolume;
+    const R = result, S = R.snapshot, u = unitName(S.unit), fixed = S.mode === 'fixed';
+    const V = R.containerVolume, multi = isMulti(), n = R.nBins;
+    const B = binAt(ui.bin) || { items: [], count: 0, volume: 0, utilization: 0, top: 0, placed: S.types.map(() => 0), weight: 0 };
     const hasW = S.types.some(t => t.enabled && t.weight > 0);
-    const maxW = result.maxWeight, tare = result.tare || 0;
+    const maxW = R.maxWeight, tare = R.tare || 0;
     const capW = maxW != null ? Math.max(0, maxW - tare) : Infinity;
     const segs = S.types.map((t, i) => {
-      const v = result.placed[i] * t.w * t.h * t.d;
+      const v = B.placed[i] * t.w * t.h * t.d;
       return v > 0 ? `<i style="width:${v / V * 100}%;background:${t.color}" title="${esc(t.name)}"></i>` : '';
     }).join('');
     const rows = S.types.map((t, i) => {
       if (!t.enabled) return '';
-      const req = result.requested[i];
+      const req = R.requested[i];
       const reqTxt = req == null || req === Infinity || req === null ? '—' : fmt(req, 0);
       return `<tr>
         <td><span class="dot" style="background:${t.color}"></span>${esc(t.name)}${t.noStack ? ' <span class="tag" title="No apilable: nada encima">no apilable</span>' : ''}</td>
         <td class="num">${fmt(t.w)}×${fmt(t.h)}×${fmt(t.d)}</td>
-        <td class="num"><b>${fmt(result.placed[i], 0)}</b></td>
+        <td class="num"><b>${fmt(R.placed[i], 0)}</b></td>
         <td class="num">${reqTxt}</td>
-        ${hasW ? `<td class="num">${t.weight > 0 ? fmt(result.placed[i] * t.weight, 1) : '—'}</td>` : ''}
+        ${hasW ? `<td class="num">${t.weight > 0 ? fmt(R.placed[i] * t.weight, 1) : '—'}</td>` : ''}
       </tr>`;
     }).join('');
 
+    // Tabla de contenedores (agrupando los idénticos)
+    const groups = binGroups();
+    const binRows = multi ? groups.map(g => {
+      const b = R.bins[g.src], k = g.to - g.from + 1, sel = ui.bin >= g.from && ui.bin <= g.to;
+      return `<tr class="bin-row${sel ? ' selected' : ''}" data-bin="${g.from}" tabindex="0" title="Ver este contenedor">
+        <td>${binLabel(g)}${k > 1 ? ` <span class="tag same">${k} iguales</span>` : ''}</td>
+        <td class="num"><b>${fmt(b.count, 0)}</b>${k > 1 ? ' c/u' : ''}</td>
+        <td class="num">${pct(b.utilization)}</td>
+        ${hasW ? `<td class="num">${fmt(b.weight + tare, 1)} kg</td>` : ''}
+      </tr>`;
+    }).join('') : '';
+
     const notes = [];
+    const left = R.leftover || [];
     S.types.forEach((t, i) => {
       if (!t.enabled) return;
-      if (!result.fits[i]) notes.push(['warn', `${esc(t.name)} no cabe en el contenedor con las rotaciones permitidas.`]);
-      else if (result.tooHeavy && result.tooHeavy[i]) notes.push(['warn', `${esc(t.name)} pesa ${kg(t.weight)}, más que el peso disponible (${kg(capW)}): no se puede incluir.`]);
-      const req = result.requested[i];
-      if (fixed && req != null && isFinite(req) && result.placed[i] < req && result.fits[i] && !(result.tooHeavy && result.tooHeavy[i])) {
-        const byWeight = isFinite(capW) && t.weight > 0 && capW - result.weight < t.weight - 1e-9;
-        notes.push(['warn', `No se han podido colocar ${fmt(req - result.placed[i], 0)} × ${esc(t.name)} ${byWeight ? 'por el límite de peso' : 'por falta de espacio'}.`]);
+      if (!R.fits[i]) notes.push(['warn', `${esc(t.name)} no cabe en el contenedor con las rotaciones permitidas.`]);
+      else if (R.tooHeavy && R.tooHeavy[i]) notes.push(['warn', `${esc(t.name)} pesa ${kg(t.weight)}, más que el peso disponible (${kg(capW)}): no se puede incluir.`]);
+      if (fixed && left[i] > 0 && R.fits[i] && !(R.tooHeavy && R.tooHeavy[i])) {
+        let why = '';
+        if (!multi) why = isFinite(capW) && t.weight > 0 && capW - B.weight < t.weight - 1e-9 ? ' por el límite de peso' : ' por falta de espacio';
+        notes.push(['warn', `No se han podido colocar ${fmt(left[i], 0)} × ${esc(t.name)}${multi ? ` en ${n === 1 ? 'el contenedor' : `los ${n} contenedores`}` : ''}${why}.`]);
       }
     });
-    if (!fixed && isFinite(capW)) {
-      const lightest = Math.min(...S.types.filter((t, i) => t.enabled && t.weight > 0 && result.fits[i]).map(t => t.weight));
-      if (isFinite(lightest) && capW - result.weight < lightest - 1e-9) {
-        notes.push(['info', `El límite de peso es lo que limita la carga (quedan ${kg(capW - result.weight)} libres).`]);
+    const boundTxt = isFinite(capW) ? 'volumen y peso' : 'volumen';
+    if (fixed && R.auto) {
+      if (R.complete) {
+        notes.push(['ok', `Hacen falta <b>${n} ${n === 1 ? 'contenedor' : 'contenedores'}</b> para las ${fmt(R.count, 0)} cajas.`]);
+        if (n <= R.lowerBound) notes.push(['ok', 'Es el mínimo posible: no se puede hacer con menos contenedores.']);
+        else notes.push(['info', `Mínimo teórico por ${boundTxt}: ${R.lowerBound}. Con cajas enteras no siempre se alcanza: la mejor distribución encontrada necesita ${n}.`]);
+      } else notes.push(['warn', 'No se han podido colocar todas las cajas (ver avisos).']);
+    } else if (fixed && R.complete) {
+      notes.push(['ok', n > 1 ? `Caben todas las cajas en ${n} contenedores.` : 'Caben todas las cajas solicitadas.']);
+    } else if (fixed && multi && !R.complete) {
+      notes.push(['info', 'Elige «Calcular cuántos hacen falta» para saber cuántos contenedores necesitas.']);
+    }
+    if (!fixed && multi) {
+      const same = groups.length === 1;
+      notes.push(['info', `En ${n} ${n === 1 ? 'contenedor caben' : 'contenedores caben'} ${fmt(R.count, 0)} cajas${same && n > 1 ? ` (${fmt(R.bins[0].count, 0)} en cada uno)` : ''}.`]);
+      if (R.target && n < R.target) notes.push(['info', `Solo se han usado ${n} de ${R.target} contenedores: no hay más cajas que colocar.`]);
+    }
+    if (!fixed && !multi && isFinite(capW)) {
+      const lightest = Math.min(...S.types.filter((t, i) => t.enabled && t.weight > 0 && R.fits[i]).map(t => t.weight));
+      if (isFinite(lightest) && capW - B.weight < lightest - 1e-9) {
+        notes.push(['info', `El límite de peso es lo que limita la carga (quedan ${kg(capW - B.weight)} libres).`]);
       }
     }
-    const allFixedPlaced = fixed && S.types.every((t, i) => !t.enabled || !(result.requested[i] > 0) || result.placed[i] >= result.requested[i]);
-    if (fixed && allFixedPlaced) notes.push(['ok', 'Caben todas las cajas solicitadas.']);
-    if (!fixed && result.boundReached) notes.push(['ok', 'Solución óptima: se ha alcanzado el máximo teórico.']);
-    if (!fixed && !result.boundReached && S.objective === 'count' && isFinite(result.countBound)) {
-      notes.push(['info', `Máximo teórico por ${isFinite(capW) ? 'volumen y peso' : 'volumen'}: ${fmt(result.countBound, 0)} cajas (rara vez alcanzable).`]);
+    if (!fixed && !multi && B.boundReached) notes.push(['ok', 'Solución óptima: se ha alcanzado el máximo teórico.']);
+    if (!fixed && !multi && !B.boundReached && S.objective === 'count' && isFinite(B.countBound)) {
+      notes.push(['info', `Máximo teórico por ${boundTxt}: ${fmt(B.countBound, 0)} cajas (rara vez alcanzable).`]);
     }
-    if (result.grouped) notes.push(['info', `Hay muchas cajas: se muestran agrupadas en ${fmt(result.items.length, 0)} bloques.`]);
-    if (result.stopped) notes.push(['info', 'Búsqueda detenida manualmente: se muestra la mejor solución encontrada.']);
+    if (B.grouped) notes.push(['info', `Hay muchas cajas: se muestran agrupadas en ${fmt(B.items.length, 0)} bloques.`]);
+    if (R.stopped) notes.push(['info', 'Búsqueda detenida manualmente: se muestra la mejor solución encontrada.']);
+
+    const view = Object.assign({ tare, maxWeight: maxW }, B);
+    const showW = hasW || maxW != null;
+    const kpis = multi
+      ? `<div class="kpis three">
+          <div class="kpi"><b>${fmt(n, 0)}</b><span>${n === 1 ? 'contenedor' : 'contenedores'}</span></div>
+          <div class="kpi"><b>${fmt(R.count, 0)}</b><span>cajas en total</span></div>
+          <div class="kpi"><b>${pct(R.utilization)}</b><span>ocupación media</span></div>
+        </div>`
+      : `<div class="kpis${showW ? ' three' : ''}">
+          <div class="kpi"><b>${fmt(B.count, 0)}</b><span>cajas colocadas</span></div>
+          <div class="kpi"><b>${pct(B.utilization)}</b><span>del volumen ocupado</span></div>
+          ${showW ? `<div class="kpi${maxW != null && B.weight + tare > maxW * 0.95 ? ' full' : ''}"><b>${fmt(B.weight + tare, 1)} kg</b><span>${maxW != null ? `de ${fmt(maxW, 1)} kg máx.` : 'peso total'}</span></div>` : ''}
+        </div>`;
 
     box.innerHTML = `
-      <div class="kpis${hasW || maxW != null ? ' three' : ''}">
-        <div class="kpi"><b>${fmt(result.count, 0)}</b><span>cajas colocadas</span></div>
-        <div class="kpi"><b>${pct(result.utilization)}</b><span>del volumen ocupado</span></div>
-        ${hasW || maxW != null ? `<div class="kpi${maxW != null && result.weight + tare > maxW * 0.95 ? ' full' : ''}"><b>${fmt(result.weight + tare, 1)} kg</b><span>${maxW != null ? `de ${fmt(maxW, 1)} kg máx.` : 'peso total'}</span></div>` : ''}
-      </div>
-      <div class="util" aria-hidden="true">${segs}</div>
-      <p class="hint">${volText(result.volume, S.unit)} de ${volText(V, S.unit)} · altura usada ${fmt(result.top)} ${u} de ${fmt(S.container.h)} ${u}</p>
-      ${weightLines(result, S, u)}
+      ${kpis}
       <table class="type-table">
-        <thead><tr><th>Tipo</th><th class="num">Medidas</th><th class="num">Colocadas</th><th class="num">${fixed ? 'Pedidas' : 'Máx.'}</th>${hasW ? '<th class="num">kg</th>' : ''}</tr></thead>
+        <thead><tr><th>Tipo</th><th class="num">Medidas</th><th class="num">${multi ? 'Total' : 'Colocadas'}</th><th class="num">${fixed ? 'Pedidas' : 'Máx.'}</th>${hasW ? '<th class="num">kg</th>' : ''}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
       ${notes.length ? `<ul class="notes">${notes.map(([k, t]) => `<li class="${k}">${t}</li>`).join('')}</ul>` : ''}
-      <p class="meta">${fmt(result.iterations, 0)} ${result.iterations === 1 ? 'combinación evaluada' : 'combinaciones evaluadas'} en ${fmt((result.elapsed || 0) / 1000, 1)} s · contenedor ${fmt(S.container.w)}×${fmt(S.container.h)}×${fmt(S.container.d)} ${u}</p>`;
+      ${multi ? `<h3 class="sub">Contenedores</h3>
+      <table class="type-table bin-table">
+        <thead><tr><th>Nº</th><th class="num">Cajas</th><th class="num">Ocupación</th>${hasW ? '<th class="num">Peso</th>' : ''}</tr></thead>
+        <tbody>${binRows}</tbody>
+      </table>
+      <h3 class="sub">Contenedor ${ui.bin + 1}${n > 1 ? ` de ${n}` : ''}</h3>` : ''}
+      <div class="util" aria-hidden="true">${segs}</div>
+      <p class="hint">${multi ? `${fmt(B.count, 0)} cajas · ` : ''}${volText(B.volume, S.unit)} de ${volText(V, S.unit)} (${pct(B.utilization)}) · altura usada ${fmt(B.top)} ${u} de ${fmt(S.container.h)} ${u}</p>
+      ${weightLines(view, S, u)}
+      <p class="meta">${fmt(R.iterations, 0)} ${R.iterations === 1 ? 'combinación evaluada' : 'combinaciones evaluadas'} en ${fmt((R.elapsed || 0) / 1000, 1)} s · contenedor ${fmt(S.container.w)}×${fmt(S.container.h)}×${fmt(S.container.d)} ${u}</p>`;
   }
 
   // ---- Capas -----------------------------------------------------------------
 
-  function getLayers(axis) {
-    if (!result) return [];
-    if (layerCache[axis]) return layerCache[axis];
+  function getLayers(axis, bin) {
+    const B = binAt(bin);
+    if (!B) return [];
+    const key = srcIndex(bin == null ? ui.bin : bin) + ':' + axis;
+    if (layerCache[key]) return layerCache[key];
     const [k, ks] = AXIS_KEYS[axis];
     const size = result.snapshot.container[ks];
     const eps = size * 1e-7;
-    const starts = result.items.map(it => it[k]).sort((a, b) => a - b);
+    const starts = B.items.map(it => it[k]).sort((a, b) => a - b);
     const uniq = [];
     for (const s of starts) if (!uniq.length || s - uniq[uniq.length - 1] > eps) uniq.push(s);
     let end = 0;
-    for (const it of result.items) end = Math.max(end, it[k] + it[ks]);
+    for (const it of B.items) end = Math.max(end, it[k] + it[ks]);
     const layers = uniq.map((lo, i) => ({ lo, hi: i + 1 < uniq.length ? uniq[i + 1] : end }));
-    layerCache[axis] = layers;
+    layerCache[key] = layers;
     return layers;
   }
 
   // Capa idx del eje dado. opts: { ghost, solidBefore } para los estados 3D.
-  function layerAt(axis, idx, opts) {
-    const layers = getLayers(axis);
+  function layerAt(axis, idx, opts, bin) {
+    if (bin == null) bin = ui.bin;
+    const layers = getLayers(axis, bin);
     if (!layers.length) return null;
     idx = Math.max(0, Math.min(layers.length - 1, idx | 0));
     const L = layers[idx];
     const [k, ks] = AXIS_KEYS[axis];
     const eps = result.snapshot.container[ks] * 1e-7;
     const p = L.lo + eps;
-    const items = result.items, n = items.length;
+    const items = binAt(bin).items, n = items.length;
     const visible = [], states = new Uint8Array(n);
     const ghostState = opts.ghost > 0.001 ? 3 : 5;
     for (let i = 0; i < n; i++) {
@@ -593,7 +698,7 @@
       } else if (opts.solidBefore && e <= p) states[i] = 4;
       else states[i] = ghostState;
     }
-    return { layers, index: idx, L, visible, states };
+    return { layers, index: idx, L, visible, states, bin };
   }
 
   function currentLayer() {
@@ -607,7 +712,7 @@
     const byType = new Map();
     let nNew = 0, nCont = 0, wNew = 0;
     for (const v of info.visible) {
-      const it = result.items[v.i], c = it.count || 1;
+      const it = binAt(info.bin).items[v.i], c = it.count || 1;
       if (v.cont) { nCont += c; continue; }
       nNew += c;
       wNew += c * (result.snapshot.types[it.t].weight || 0);
@@ -622,7 +727,7 @@
 
   function describe(i) {
     if (!result) return '';
-    const it = result.items[i], S = result.snapshot, t = S.types[it.t], u = unitName(S.unit);
+    const it = binAt().items[i], S = result.snapshot, t = S.types[it.t], u = unitName(S.unit);
     let orient = '';
     if (it.count > 1) orient = `<div>Bloque de ${fmt(it.count, 0)} cajas</div>`;
     else if (Math.abs(it.h - t.h) > 1e-9) orient = '<div>Tumbada (su alto original no queda vertical)</div>';
@@ -656,10 +761,10 @@
     }
   }
 
-  function sceneFor(res) {
-    const S = res.snapshot;
+  function sceneFor(bin) {
+    const S = result.snapshot;
     return {
-      container: S.container, items: res.items,
+      container: S.container, items: binAt(bin).items,
       colors: S.types.map(t => t.color), unit: unitName(S.unit), fmt: v => fmt(v)
     };
   }
@@ -667,10 +772,43 @@
   function onNewResult() {
     renderResults();
     if (viewer && !viewer.failed) {
-      if (result) { viewer.setScene(sceneFor(result)); viewer.setMarker(result.cog || null); }
+      if (result) { viewer.setScene(sceneFor()); viewer.setMarker(binAt().cog || null); }
       else { viewer.setScene({ container: config.container, items: [], colors: [], unit: unitName(config.unit), fmt: v => fmt(v) }); viewer.setMarker(null); }
     }
+    renderBinBar();
     updateViews(true);
+  }
+
+  // Selector de contenedor (solo si hay más de uno).
+  function renderBinBar() {
+    const bar = $('#binbar');
+    const n = result ? result.nBins : 0;
+    bar.hidden = !(result && n > 1);
+    if (bar.hidden) return;
+    const sel = $('#bin-select');
+    sel.innerHTML = result.bins.map((b, k) => {
+      const src = srcIndex(k), B = result.bins[src];
+      return `<option value="${k}">Contenedor ${k + 1} de ${n} · ${fmt(B.count, 0)} cajas${src !== k ? ` (igual que el ${src + 1})` : ''}</option>`;
+    }).join('');
+    sel.value = String(ui.bin);
+    $('#bin-prev').disabled = ui.bin <= 0;
+    $('#bin-next').disabled = ui.bin >= n - 1;
+    const B = binAt();
+    const hasW = result.snapshot.types.some(t => t.enabled && t.weight > 0);
+    $('#bin-info').textContent = `${pct(B.utilization)} ocupado` + (hasW ? ` · ${kg(B.weight + (result.tare || 0))}` : '');
+  }
+
+  function setBin(k) {
+    if (!result) return;
+    k = Math.max(0, Math.min(result.nBins - 1, k | 0));
+    if (k === ui.bin) return;
+    const sameLayout = srcIndex(k) === srcIndex(ui.bin);
+    ui.bin = k;
+    if (!sameLayout && viewer && !viewer.failed) { viewer.setScene(sceneFor(), true); viewer.setMarker(binAt().cog || null); }
+    renderBinBar();
+    renderResults();
+    updateViews(true);
+    saveSoon();
   }
 
   function updateViews(rebuild3d) {
@@ -700,13 +838,14 @@
 
     // 2D
     const container = S ? S.container : config.container;
+    const binTxt = result && result.nBins > 1 ? `Contenedor ${ui.bin + 1} · ` : '';
     $('#v2d-title').textContent = info
-      ? `${AXIS_TEXT[ui.axis].view} · corte en ${AX} = ${fmt(info.L.lo)} ${u} (capas ${AXIS_TEXT[ui.axis].dir})`
-      : `${AXIS_TEXT[ui.axis].view}`;
+      ? `${binTxt}${AXIS_TEXT[ui.axis].view} · corte en ${AX} = ${fmt(info.L.lo)} ${u} (capas ${AXIS_TEXT[ui.axis].dir})`
+      : `${binTxt}${AXIS_TEXT[ui.axis].view}`;
     if (layerView) {
       layerView.set({
         container, axis: ui.axis, unit: u, fmt: v => fmt(v),
-        items: result ? result.items : [],
+        items: result ? binAt().items : [],
         colors: S ? S.types.map(t => t.color) : [],
         names: S ? S.types.map(t => t.name) : [],
         visible: info ? info.visible : [],
@@ -770,6 +909,12 @@
       updateViews(true); saveSoon();
     });
     $('#layer-mode').addEventListener('change', e => { ui.layerMode = e.target.checked; updateViews(true); saveSoon(); });
+    $('#bin-select').addEventListener('change', e => setBin(+e.target.value));
+    $('#bin-prev').addEventListener('click', () => setBin(ui.bin - 1));
+    $('#bin-next').addEventListener('click', () => setBin(ui.bin + 1));
+    const pickBin = e => { const tr = e.target.closest('.bin-row'); if (tr) setBin(+tr.dataset.bin); };
+    $('#results').addEventListener('click', pickBin);
+    $('#results').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickBin(e); } });
     $('#layer-slider').addEventListener('input', e => setLayer(+e.target.value, true));
     $('#layer-prev').addEventListener('click', () => setLayer(ui.layer - 1, true));
     $('#layer-next').addEventListener('click', () => setLayer(ui.layer + 1, true));
@@ -823,8 +968,8 @@
         if (!data || !data.config) throw new Error('formato');
         if (running) { running.stop(); }
         config = sanitizeConfig(data.config);
-        result = data.result && Array.isArray(data.result.items) && data.result.snapshot ? data.result : null;
-        stale = false; layerCache = {}; ui.layer = 0;
+        result = data.result && data.result.snapshot && (Array.isArray(data.result.items) || Array.isArray(data.result.bins)) ? normalizeResult(data.result) : null;
+        stale = false; layerCache = {}; ui.layer = 0; ui.bin = 0;
         renderForm(); onNewResult(); save();
         showMsg(`Proyecto «${f.name}» cargado.`, 'info');
       } catch (err) {
@@ -833,7 +978,7 @@
     });
     $('#btn-example').addEventListener('click', () => {
       if (!confirm('¿Cargar la configuración de ejemplo? Se perderá la configuración actual si no la has guardado.')) return;
-      config = example(); result = null; stale = false; layerCache = {}; ui.layer = 0;
+      config = example(); result = null; stale = false; layerCache = {}; ui.layer = 0; ui.bin = 0;
       renderForm(); onNewResult(); save(); showMsg(null);
     });
   }
@@ -841,6 +986,7 @@
   // ---- Inicio ------------------------------------------------------------------
 
   load();
+  if (!result || !(ui.bin < result.nBins)) ui.bin = 0;
   renderForm();
   bindForm();
   bindViews();
@@ -851,7 +997,9 @@
     Exporter.open({
       result, ui, viewer: viewer && !viewer.failed ? viewer : null,
       getLayers, layerAt, layerCounts, fmt, unitName, volText, pct, stale, cogText, kg,
-      axisText: AXIS_TEXT
+      axisText: AXIS_TEXT, binAt, binGroups, isMulti,
+      // Muestra temporalmente otro contenedor en el visor 3D (para las imágenes).
+      showBin: k => { if (viewer && !viewer.failed) { viewer.setScene(sceneFor(k), true); viewer.setMarker(binAt(k).cog || null); } }
     });
   });
   onNewResult();

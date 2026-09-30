@@ -44,7 +44,7 @@
     const S = ctx.result.snapshot;
     return {
       container: S.container, axis, unit: ctx.unitName(S.unit), fmt: v => ctx.fmt(v),
-      items: ctx.result.items, colors: S.types.map(t => t.color), names: S.types.map(t => t.name),
+      items: ctx.binAt(info.bin).items, colors: S.types.map(t => t.color), names: S.types.map(t => t.name),
       visible: info.visible
     };
   }
@@ -53,7 +53,7 @@
     if (!ctx.viewer || !o.with3d) return null;
     let states = null, plane = null;
     if (info) {
-      states = ctx.layerAt(o.axis, info.index, { ghost: 0.07, solidBefore: o.before }).states;
+      states = ctx.layerAt(o.axis, info.index, { ghost: 0.07, solidBefore: o.before }, info.bin).states;
       plane = { axis: o.axis, pos: info.L.lo };
     }
     return ctx.viewer.renderImage({
@@ -86,14 +86,21 @@
 
   // ---- Página de una capa -------------------------------------------------------
 
-  async function drawLayerPage(p, putImage, W, H, o, index, pageNo, total) {
+  // g: grupo de contenedores idénticos { from, to, src } (null si solo hay uno)
+  async function drawLayerPage(p, putImage, W, H, o, index, pageNo, total, g) {
     const S = ctx.result.snapshot, u = ctx.unitName(S.unit), f = ctx.fmt;
-    const info = ctx.layerAt(o.axis, index, { ghost: 0, solidBefore: false });
+    const bin = g ? g.src : ctx.ui.bin;
+    const info = ctx.layerAt(o.axis, index, { ghost: 0, solidBefore: false }, bin);
     const n = info.layers.length, L = info.L, AX = o.axis.toUpperCase();
     p.fillRect(0, 0, W, H, '#ffffff');
 
     // Cabecera
-    p.text(`Capa ${index + 1} de ${n}`, M, M, { size: 18, bold: true, color: INK, baseline: 'top' });
+    const multi = ctx.isMulti();
+    const binTxt = !multi ? '' : !g ? `Contenedor ${bin + 1} · ` : g.from === g.to ? `Contenedor ${g.from + 1} · ` : `Contenedores ${g.from + 1}–${g.to + 1} · `;
+    p.text(`${binTxt}Capa ${index + 1} de ${n}`, M, M, { size: 18, bold: true, color: INK, baseline: 'top' });
+    if (g && g.to > g.from) {
+      p.text(`${g.to - g.from + 1} contenedores iguales: repite esta distribución en cada uno`, W - M, M + 16, { size: 8.5, color: MUTED, align: 'right', baseline: 'top' });
+    }
     p.text(AXIS_NAMES[o.axis], W - M, M + 2, { size: 10, bold: true, color: ACCENT, align: 'right', baseline: 'top' });
     p.text(`${ctx.axisText[o.axis].view} · corte en ${AX} = ${f(L.lo)} ${u} · espesor hasta la siguiente capa: ${f(L.hi - L.lo)} ${u}`,
       M, M + 25, { size: 9.5, color: MUTED, baseline: 'top' });
@@ -144,6 +151,8 @@
 
   async function drawCover(p, putImage, W, H, o, pageNo, total) {
     const R = ctx.result, S = R.snapshot, u = ctx.unitName(S.unit), f = ctx.fmt;
+    const multi = ctx.isMulti(), B = ctx.binAt(ctx.ui.bin);
+    const view = Object.assign({ tare: R.tare, maxWeight: R.maxWeight }, B);
     p.fillRect(0, 0, W, H, '#ffffff');
     p.text('Plan de colocación', M, M, { size: 24, bold: true, color: INK, baseline: 'top' });
     const date = new Date(R.date || Date.now()).toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' });
@@ -167,16 +176,22 @@
 
     // Indicadores
     section('Resultado');
-    const kpis = [
-      [f(R.count, 0), 'cajas colocadas'],
-      [ctx.pct(R.utilization), 'del volumen ocupado'],
-      [`${f(R.top)} ${u}`, `de altura usada (de ${f(S.container.h)})`]
-    ];
     const hasW = R.weight > 0 || R.maxWeight != null;
-    if (hasW) {
+    const kpis = multi ? [
+      [f(R.nBins, 0), R.nBins === 1 ? 'contenedor' : 'contenedores'],
+      [f(R.count, 0), 'cajas en total'],
+      [ctx.pct(R.utilization), 'ocupación media']
+    ] : [
+      [f(B.count, 0), 'cajas colocadas'],
+      [ctx.pct(B.utilization), 'del volumen ocupado'],
+      [`${f(B.top)} ${u}`, `de altura usada (de ${f(S.container.h)})`]
+    ];
+    if (multi) {
+      if (hasW) kpis.push([`${f(R.weight, 1)} kg`, 'peso de las cajas']);
+    } else if (hasW) {
       kpis[1][1] = 'del volumen';
       kpis[2][1] = `altura (de ${f(S.container.h)})`;
-      kpis.push([`${f(R.weight + (R.tare || 0), 1)} kg`, R.maxWeight != null ? `de ${f(R.maxWeight, 1)} kg máx.` : 'peso total']);
+      kpis.push([`${f(B.weight + (R.tare || 0), 1)} kg`, R.maxWeight != null ? `de ${f(R.maxWeight, 1)} kg máx.` : 'peso total']);
     }
     const kw = Math.min(150, (colW - 8 * (kpis.length - 1)) / kpis.length);
     kpis.forEach(([v, l], i) => {
@@ -187,14 +202,26 @@
       p.text(fitText(p, l, 8.5, false, kw - 16), x + 10, y + 30, { size: 8.5, color: MUTED, baseline: 'top' });
     });
     y += 58;
-    const cog = ctx.cogText(R, S, u);
-    if (cog) { line(cog, { size: 9.5, color: MUTED }); y += 4; } else y += 2;
+    if (multi) {
+      if (R.auto && R.complete) line(`Hacen falta ${R.nBins} ${R.nBins === 1 ? 'contenedor' : 'contenedores'}` +
+        (R.nBins <= R.lowerBound ? ' (el mínimo posible).' : ` (mínimo teórico: ${R.lowerBound}).`), { size: 9.5, bold: true, color: INK });
+      for (const g of ctx.binGroups()) {
+        if (y > H - 160) { line('…', { size: 9.5, color: MUTED }); break; }
+        const b = R.bins[g.src], k = g.to - g.from + 1;
+        line(`${k > 1 ? `Contenedores ${g.from + 1}–${g.to + 1} (${k} iguales)` : `Contenedor ${g.from + 1}`}: ${f(b.count, 0)} cajas${k > 1 ? ' c/u' : ''} · ${ctx.pct(b.utilization)}` +
+          (hasW ? ` · ${ctx.kg(b.weight + (R.tare || 0))}` : ''), { size: 9.5, color: MUTED });
+      }
+      y += 4;
+    } else {
+      const cog = ctx.cogText(view, S, u);
+      if (cog) { line(cog, { size: 9.5, color: MUTED }); y += 4; } else y += 2;
+    }
 
     // Tabla de tipos
     const cols = [M, M + colW * 0.46, M + colW * 0.76, colW + M];
     p.text('Tipo', cols[0], y, { size: 8.5, bold: true, color: MUTED, baseline: 'top' });
     p.text('Medidas', cols[1], y, { size: 8.5, bold: true, color: MUTED, baseline: 'top' });
-    p.text('Colocadas', cols[2] + 40, y, { size: 8.5, bold: true, color: MUTED, align: 'right', baseline: 'top' });
+    p.text(multi ? 'Total' : 'Colocadas', cols[2] + 40, y, { size: 8.5, bold: true, color: MUTED, align: 'right', baseline: 'top' });
     p.text(S.mode === 'fixed' ? 'Pedidas' : 'Máx.', cols[3], y, { size: 8.5, bold: true, color: MUTED, align: 'right', baseline: 'top' });
     y += 14;
     p.lines([[M, y, M + colW, y]], RULE, 0.6);
@@ -210,7 +237,8 @@
       p.text(f(R.placed[i], 0), cols[2] + 40, y, { size: 10, bold: true, color: INK, align: 'right', baseline: 'top' });
       p.text(req == null || !isFinite(req) ? '—' : f(req, 0), cols[3], y, { size: 10, color: MUTED, align: 'right', baseline: 'top' });
       y += 17;
-      if (S.mode === 'fixed' && req != null && isFinite(req) && R.placed[i] < req) unplaced.push(`${f(req - R.placed[i], 0)} × ${t.name}`);
+      const left = R.leftover ? R.leftover[i] : null;
+      if (S.mode === 'fixed' && left > 0) unplaced.push(`${f(left, 0)} × ${t.name}`);
     });
     y += 10;
     if (unplaced.length) {
@@ -219,15 +247,17 @@
     }
 
     // Cómo leer las páginas
-    const layers = ctx.getLayers(o.axis);
+    const layers = ctx.getLayers(o.axis, ctx.ui.bin);
     if (y < H - 100) {
       section('Cómo leer las páginas');
       const tips = [
-        `${AXIS_NAMES[o.axis]}: ${layers.length} ${layers.length === 1 ? 'capa' : 'capas'}, ordenadas ${ctx.axisText[o.axis].dir}.`,
+        multi ? `Las páginas van por contenedor; los contenedores iguales se muestran una sola vez.` : '',
+        `${AXIS_NAMES[o.axis]}: capas ordenadas ${ctx.axisText[o.axis].dir}${multi ? '' : ` (${layers.length} ${layers.length === 1 ? 'capa' : 'capas'})`}.`,
         'Cada página muestra el corte de una capa con las medidas en ' + u + '.',
         'Las cajas rayadas empiezan en una capa anterior y ya están colocadas.',
         o.with3d && ctx.viewer ? 'En la vista 3D, la capa actual va en color y las anteriores en gris.' : '',
-        R.cog && o.with3d && ctx.viewer ? 'La marca rosa «CG» indica el centro de gravedad de la carga.' : ''
+        B.cog && o.with3d && ctx.viewer ? 'La marca rosa «CG» indica el centro de gravedad de la carga.' : '',
+        multi && imgW ? `La vista 3D de esta portada es la del contenedor ${ctx.ui.bin + 1}.` : ''
       ].filter(Boolean);
       for (const t of tips) { if (y > H - 50) break; line('• ' + t, { size: 9.5, color: MUTED }); }
     }
@@ -243,29 +273,47 @@
 
   // ---- Exportadores ------------------------------------------------------------------
 
-  function layerIndexes(o) {
-    const layers = ctx.getLayers(o.axis);
+  function layerIndexes(o, bin) {
+    if (bin == null) bin = ctx.ui.bin;
+    const layers = ctx.getLayers(o.axis, bin);
     if (!layers.length) return [];
-    if (o.range === 'current') return [o.axis === ctx.ui.axis ? Math.min(ctx.ui.layer, layers.length - 1) : 0];
+    if (o.range === 'current') return [o.axis === ctx.ui.axis && bin === ctx.ui.bin ? Math.min(ctx.ui.layer, layers.length - 1) : 0];
     return layers.map((_, i) => i);
+  }
+
+  // Contenedores a exportar: todos (agrupando los idénticos) o solo el actual.
+  function binPlan(o) {
+    if (!ctx.isMulti() || o.bins === 'current') {
+      const k = ctx.ui.bin;
+      return [ctx.isMulti() ? { from: k, to: k, src: ctx.result.bins[k].sameAs != null ? ctx.result.bins[k].sameAs : k } : null];
+    }
+    return ctx.binGroups();
   }
 
   async function exportPdf(o, status) {
     const [W, H] = PAPER[o.paper] || PAPER.a4;
     const pdf = new MiniPdf();
-    const idx = layerIndexes(o);
-    const total = idx.length + (o.cover ? 1 : 0);
+    const plan = binPlan(o).map(g => ({ g, idx: layerIndexes(o, g ? g.src : ctx.ui.bin) }));
+    const total = plan.reduce((a, q) => a + q.idx.length, 0) + (o.cover ? 1 : 0);
     const putImage = (url, pxW, pxH, x, y, w, h, page) => page.image(pdf.addJpeg(url, pxW, pxH), x, y, w, h);
     let pageNo = 0;
-    if (o.cover) {
-      status('Generando portada…'); await tick();
-      const pg = new PdfPainter(pdf, pdf.addPage(W, H));
-      await drawCover(pg, (...a) => putImage(...a, pg), W, H, o, ++pageNo, total);
-    }
-    for (const i of idx) {
-      status(`Generando capa ${i + 1} (${pageNo + 1} de ${total})…`); await tick();
-      const pg = new PdfPainter(pdf, pdf.addPage(W, H));
-      await drawLayerPage(pg, (...a) => putImage(...a, pg), W, H, o, i, ++pageNo, total);
+    try {
+      if (o.cover) {
+        status('Generando portada…'); await tick();
+        ctx.showBin(ctx.ui.bin);
+        const pg = new PdfPainter(pdf, pdf.addPage(W, H));
+        await drawCover(pg, (...a) => putImage(...a, pg), W, H, o, ++pageNo, total);
+      }
+      for (const { g, idx } of plan) {
+        if (g) ctx.showBin(g.src);
+        for (const i of idx) {
+          status(`Generando ${g ? `contenedor ${g.from + 1}, ` : ''}capa ${i + 1} (página ${pageNo + 1} de ${total})…`); await tick();
+          const pg = new PdfPainter(pdf, pdf.addPage(W, H));
+          await drawLayerPage(pg, (...a) => putImage(...a, pg), W, H, o, i, ++pageNo, total, g);
+        }
+      }
+    } finally {
+      ctx.showBin(ctx.ui.bin);
     }
     status('Guardando PDF…'); await tick();
     const blob = await pdf.toBlob({ title: 'Plan de colocación — Organizador de espacios' });
@@ -287,9 +335,10 @@
       im.src = url;
     });
     const i = layerIndexes(Object.assign({}, o, { range: 'current' }))[0];
-    await drawLayerPage(p, putImage, W, H, o, i, 0, 0);
+    const g = binPlan(Object.assign({}, o, { bins: 'current' }))[0];
+    await drawLayerPage(p, putImage, W, H, o, i, 0, 0, g);
     const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
-    download(blob, `capa-${i + 1}-${o.axis}-${stamp()}.png`);
+    download(blob, `${g ? `contenedor-${g.from + 1}-` : ''}capa-${i + 1}-${o.axis}-${stamp()}.png`);
   }
 
   async function export3dPng(status) {
@@ -306,6 +355,7 @@
       fmt: document.querySelector('input[name="exp-fmt"]:checked').value,
       axis: $('#exp-axis').value,
       range: $('#exp-range').value,
+      bins: $('#exp-bins').value,
       paper: $('#exp-paper').value,
       cover: $('#exp-cover').checked,
       with3d: $('#exp-3d').checked && !!ctx.viewer,
@@ -319,11 +369,15 @@
       el.hidden = !el.dataset.for.split(' ').includes(o.fmt);
     }
     $('#exp-before').disabled = !$('#exp-3d').checked || !ctx.viewer;
+    $('#exp-bins-row').hidden = $('#exp-bins-row').hidden || !ctx.isMulti();
     const n = ctx.getLayers(o.axis).length;
     const info = $('#exp-info');
     if (o.fmt === 'pdf') {
-      const pages = (o.range === 'current' ? 1 : n) + (o.cover ? 1 : 0);
-      info.textContent = `${pages} ${pages === 1 ? 'página' : 'páginas'} · ${n} ${n === 1 ? 'capa' : 'capas'} en esta dirección.`;
+      const plan = binPlan(o);
+      const pages = plan.reduce((a, g) => a + layerIndexes(o, g ? g.src : ctx.ui.bin).length, 0) + (o.cover ? 1 : 0);
+      info.textContent = `${pages} ${pages === 1 ? 'página' : 'páginas'}` + (ctx.isMulti() && o.bins !== 'current'
+        ? ` · ${plan.length} ${plan.length === 1 ? 'distribución distinta' : 'distribuciones distintas'} para ${ctx.result.nBins} contenedores.`
+        : ` · ${n} ${n === 1 ? 'capa' : 'capas'} en esta dirección.`);
     } else if (o.fmt === 'png-layer') {
       const i = layerIndexes(Object.assign({}, o, { range: 'current' }))[0] || 0;
       info.textContent = `Capa ${i + 1} de ${n}` + (o.axis !== ctx.ui.axis ? ' (primera capa: la actual es de otra dirección).' : '.');

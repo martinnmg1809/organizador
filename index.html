@@ -72,6 +72,17 @@
           <button type="button" data-v="fixed" role="radio">Cantidad fija</button>
         </div>
         <p class="hint" id="mode-hint"></p>
+        <div class="form-rows bins-rows">
+          <label id="bins-mode-row"><span>Contenedores</span>
+            <select id="bins-mode">
+              <option value="auto">Calcular cuántos hacen falta</option>
+              <option value="n">Número fijo</option>
+            </select>
+          </label>
+          <label id="bins-n-row"><span>Número de contenedores</span>
+            <input type="number" id="bins-n" min="1" max="500" step="1" inputmode="numeric">
+          </label>
+        </div>
         <div class="form-rows">
           <label><span id="objective-label">Priorizar</span>
             <select id="objective">
@@ -129,6 +140,16 @@
             <button type="button" data-v="x" role="radio" title="Capas verticales de izquierda a derecha (vista lateral)">Laterales · X</button>
           </div>
         </div>
+      </div>
+
+      <div class="binbar" id="binbar" hidden>
+        <span class="toolbar-label">Contenedor</span>
+        <div class="bin-nav">
+          <button type="button" class="btn icon" id="bin-prev" aria-label="Contenedor anterior">‹</button>
+          <select id="bin-select" aria-label="Contenedor"></select>
+          <button type="button" class="btn icon" id="bin-next" aria-label="Contenedor siguiente">›</button>
+        </div>
+        <span class="bin-info" id="bin-info"></span>
       </div>
 
       <div class="layerbar">
@@ -205,6 +226,12 @@
             <option value="y">Horizontales · Y</option>
             <option value="z">Frontales · Z</option>
             <option value="x">Laterales · X</option>
+          </select>
+        </label>
+        <label data-for="pdf" id="exp-bins-row"><span>Contenedores</span>
+          <select id="exp-bins">
+            <option value="all">Todos</option>
+            <option value="current">Solo el que se está viendo</option>
           </select>
         </label>
         <label data-for="pdf"><span>Páginas</span>

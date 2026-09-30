@@ -677,7 +677,134 @@ function OrganizadorPacker() {
     }
   }
 
-  return { Solver, orientationsFor, prepare };
+  // ---- Varios contenedores ------------------------------------------------
+  //
+  // Llena contenedores iguales uno tras otro con lo que queda por colocar.
+  //   bins.auto = true (solo en modo fijo): tantos contenedores como hagan falta.
+  //   bins.n: número fijo de contenedores.
+  // Si la distribución de un contenedor sigue siendo válida con lo que queda,
+  // se reutiliza sin recalcular (contenedores idénticos).
+
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+  class MultiSolver {
+    constructor(input, budgetMs, maxItems) {
+      this.input = input;
+      this.maxItems = maxItems || 60000;
+      const P = this.P = prepare(input);
+      const b = input.bins || {};
+      this.auto = P.mode === 'fixed' && !!b.auto;
+      this.target = this.auto ? 500 : Math.max(1, Math.floor(+b.n || 1));
+      this.rem = P.types.map(t => (t.fits && !t.tooHeavy ? t.qty : 0));
+      this.bins = [];
+      this.cur = null;
+      this.curSpent = 0;
+      this.elapsed = 0;
+      this.iters = 0;
+      this.done = !this._pending();
+
+      // Mínimo teórico de contenedores (por volumen y por peso).
+      let tv = 0, tw = 0;
+      for (const t of P.types) if (isFinite(this.rem[t.index])) { tv += this.rem[t.index] * t.vol; tw += this.rem[t.index] * t.weight; }
+      this.lowerBound = Math.max(1, Math.ceil(tv / P.V - 1e-9), isFinite(P.wCap) && P.wCap > 0 ? Math.ceil(tw / P.wCap - 1e-9) : 0);
+
+      const unlimited = this.rem.some(q => q === Infinity);
+      const est = this.auto ? this.lowerBound : unlimited ? 1 : Math.min(this.target, this.lowerBound);
+      this.perBin = Math.max(250, (budgetMs || 3000) / Math.max(1, est));
+    }
+
+    _pending() { return this.rem.some(q => q > 0); }
+
+    // Acelera los contenedores que faltan (al pulsar "Detener").
+    hurry() { this.perBin = Math.min(this.perBin, 40); }
+
+    _resolve(k) { const b = this.bins[k]; return b && b.sameAs != null ? this.bins[b.sameAs] : b; }
+
+    _startNext() {
+      if (this.bins.length >= this.target || !this._pending()) { this.done = true; return; }
+      const k = this.bins.length - 1;
+      if (k >= 0) {
+        const src = this.bins[k].sameAs != null ? this.bins[k].sameAs : k;
+        const last = this.bins[src];
+        if (last.placed.every((c, i) => c <= this.rem[i])) {
+          this.bins.push({ sameAs: src });
+          last.placed.forEach((c, i) => { this.rem[i] -= c; });
+          return;
+        }
+      }
+      const types = this.input.types.map((t, i) => Object.assign({}, t, { qty: this.rem[i] === Infinity ? null : this.rem[i] }));
+      // Para averiguar cuántos contenedores hacen falta conviene llenar cada uno por volumen.
+      const objective = this.auto ? 'volume' : this.input.objective;
+      this.cur = new Solver(Object.assign({}, this.input, { types, objective }), 20240917 + this.bins.length);
+      this.curSpent = 0;
+    }
+
+    _finishCurrent() {
+      const r = this.cur.result(this.maxItems);
+      this.iters += this.cur.iter;
+      this.cur = null;
+      if (r.count === 0) { this.done = true; return; }   // ya no cabe nada más
+      this.bins.push({
+        items: r.items, grouped: r.grouped, count: r.count, volume: r.volume, utilization: r.utilization,
+        top: r.top, placed: r.placed, weight: r.weight, cog: r.cog, cogOffset: r.cogOffset,
+        boundReached: r.boundReached, countBound: r.countBound, usedDP: r.usedDP
+      });
+      r.placed.forEach((c, i) => { this.rem[i] -= c; });
+    }
+
+    run(ms) {
+      const t0 = now();
+      while (!this.done && now() - t0 < ms) {
+        if (!this.cur) { this._startNext(); continue; }
+        const slice = Math.min(ms - (now() - t0), this.perBin - this.curSpent);
+        if (slice > 0 && !this.cur.done) {
+          const a = now();
+          this.cur.run(Math.max(1, slice));
+          this.curSpent += now() - a;
+        }
+        if (this.cur.done || this.curSpent >= this.perBin) this._finishCurrent();
+      }
+      this.elapsed += now() - t0;
+    }
+
+    // Progreso: cajas colocadas hasta ahora y contenedor en curso.
+    progress() {
+      let n = 0, v = 0;
+      for (let k = 0; k < this.bins.length; k++) { const b = this._resolve(k); n += b.count; v += b.volume; }
+      const sc = this.cur && this.cur.bestScore;
+      return { count: n + (sc ? sc.n : 0), volume: v + (sc ? sc.v : 0), bin: this.bins.length + (this.cur ? 1 : 0), iterations: this.iters + (this.cur ? this.cur.iter : 0) };
+    }
+
+    result() {
+      const P = this.P;
+      const placed = P.types.map(() => 0);
+      let count = 0, volume = 0, weight = 0;
+      for (let k = 0; k < this.bins.length; k++) {
+        const b = this._resolve(k);
+        b.placed.forEach((c, i) => { placed[i] += c; });
+        count += b.count; volume += b.volume; weight += b.weight;
+      }
+      const n = this.bins.length;
+      return {
+        multi: true,
+        bins: this.bins,
+        nBins: n, auto: this.auto, target: this.auto ? null : this.target,
+        lowerBound: this.lowerBound,
+        count, volume, weight, placed,
+        utilization: n ? volume / (n * P.V) : 0,
+        requested: P.types.map(t => t.qty),
+        leftover: this.rem.map(q => (isFinite(q) ? q : null)),
+        complete: !this._pending(),
+        fits: P.types.map(t => t.fits),
+        tooHeavy: P.types.map(t => !!t.tooHeavy),
+        containerVolume: P.V,
+        maxWeight: isFinite(P.maxWeight) ? P.maxWeight : null, tare: P.tare,
+        iterations: this.iters, elapsed: this.elapsed
+      };
+    }
+  }
+
+  return { Solver, MultiSolver, orientationsFor, prepare };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = OrganizadorPacker();

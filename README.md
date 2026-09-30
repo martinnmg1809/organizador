@@ -35,6 +35,15 @@ siempre que mantengas juntos `index.html`, `css/` y `js/`.
   - *Maximizar cantidad*: mete tantas cajas como quepan (el campo "Máximo" es opcional).
   - *Cantidad fija*: intenta colocar las cantidades indicadas y, si caben todas,
     busca la colocación más baja y compacta.
+- **Varios contenedores** (todos iguales, con el mismo límite de peso cada uno):
+  - *Cantidad fija → Calcular cuántos hacen falta*: reparte las cajas pedidas y dice cuántos
+    contenedores se necesitan, comparándolo con el mínimo teórico por volumen y peso.
+  - *Cantidad fija → Número fijo*: reparte las cajas en *n* contenedores y avisa de las que
+    no caben.
+  - *Maximizar → n contenedores*: cuántas cajas caben en *n* contenedores.
+  - Los contenedores con la misma distribución se agrupan («1–3, 3 iguales»); un selector
+    permite ver cada contenedor en 3D y por capas, y el PDF incluye las páginas de cada
+    distribución distinta.
 - **Priorizar**: número de cajas o volumen ocupado.
 - **Apoyo mínimo**: exige que cada caja apoye un porcentaje de su base (evita cajas "flotando").
 - **Vista 3D**: arrastra para girar, rueda para zoom, clic derecho o Mayús + arrastrar
@@ -72,6 +81,9 @@ js/app.js         Interfaz y coordinación
 2. **Búsqueda GRASP con espacios máximos**: construye miles de soluciones colocando bloques
    de cajas en el hueco más bajo y conserva la mejor. Parte de las iteraciones reconstruyen
    solo el final de la mejor solución para mejorarla.
+
+Con varios contenedores, se llenan uno tras otro con lo que queda por colocar; si la
+distribución de un contenedor sigue sirviendo, se reutiliza sin recalcular.
 
 Después, las cajas se "dejan caer" (gravedad) y se comprueba el apoyo mínimo. El cálculo se
 ejecuta en segundo plano (Web Worker) para que la página no se congele.
