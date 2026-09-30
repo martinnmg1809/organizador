@@ -12,7 +12,7 @@
   const LIGHT_3D = { bg: [1, 1, 1], grid: [0, 0, 0, 0.08], frame: [0.23, 0.27, 0.32, 0.85], edge: [0, 0, 0, 0.4], accent: [0.15, 0.39, 0.92] };
   const INK = '#1b2330', MUTED = '#5b6676', FAINT = '#8a94a3', RULE = '#dfe3e8', ACCENT = '#2563eb';
   const PAPER = { a4: [841.89, 595.28], letter: [792, 612] };
-  const AXIS_NAMES = { y: 'Capas horizontales (Y)', z: 'Capas frontales (Z)', x: 'Capas laterales (X)' };
+  const tr = (k, p) => I18n.t(k, p);
   const M = 32;
 
   let ctx = null, busy = false;
@@ -79,9 +79,9 @@
   function footer(p, W, H, pageNo, total) {
     const S = ctx.result.snapshot, u = ctx.unitName(S.unit), f = ctx.fmt;
     p.lines([[M, H - 26, W - M, H - 26]], RULE, 0.6);
-    p.text(`Organizador de espacios · contenedor ${f(S.container.w)} × ${f(S.container.h)} × ${f(S.container.d)} ${u}`,
+    p.text(tr('pdf.footer', { app: tr('app.title'), dims: `${f(S.container.w)} × ${f(S.container.h)} × ${f(S.container.d)} ${u}` }),
       M, H - 14, { size: 8, color: FAINT, baseline: 'middle' });
-    if (pageNo) p.text(`Página ${pageNo} de ${total}`, W - M, H - 14, { size: 8, color: FAINT, align: 'right', baseline: 'middle' });
+    if (pageNo) p.text(tr('pdf.page', { p: pageNo, n: total }), W - M, H - 14, { size: 8, color: FAINT, align: 'right', baseline: 'middle' });
   }
 
   // ---- Página de una capa -------------------------------------------------------
@@ -96,13 +96,13 @@
 
     // Cabecera
     const multi = ctx.isMulti();
-    const binTxt = !multi ? '' : !g ? `Contenedor ${bin + 1} · ` : g.from === g.to ? `Contenedor ${g.from + 1} · ` : `Contenedores ${g.from + 1}–${g.to + 1} · `;
-    p.text(`${binTxt}Capa ${index + 1} de ${n}`, M, M, { size: 18, bold: true, color: INK, baseline: 'top' });
+    const binTxt = !multi ? '' : !g ? tr('pdf.binPrefix', { k: bin + 1 }) : g.from === g.to ? tr('pdf.binPrefix', { k: g.from + 1 }) : tr('pdf.binsPrefix', { a: g.from + 1, b: g.to + 1 });
+    p.text(tr('pdf.layerTitle', { bin: binTxt, i: index + 1, n }), M, M, { size: 18, bold: true, color: INK, baseline: 'top' });
     if (g && g.to > g.from) {
-      p.text(`${g.to - g.from + 1} contenedores iguales: repite esta distribución en cada uno`, W - M, M + 16, { size: 8.5, color: MUTED, align: 'right', baseline: 'top' });
+      p.text(tr('pdf.sameNote', { k: g.to - g.from + 1 }), W - M, M + 16, { size: 8.5, color: MUTED, align: 'right', baseline: 'top' });
     }
-    p.text(AXIS_NAMES[o.axis], W - M, M + 2, { size: 10, bold: true, color: ACCENT, align: 'right', baseline: 'top' });
-    p.text(`${ctx.axisText[o.axis].view} · corte en ${AX} = ${f(L.lo)} ${u} · espesor hasta la siguiente capa: ${f(L.hi - L.lo)} ${u}`,
+    p.text(ctx.axisText[o.axis].name, W - M, M + 2, { size: 10, bold: true, color: ACCENT, align: 'right', baseline: 'top' });
+    p.text(tr('pdf.cutLine', { view: ctx.axisText[o.axis].view, ax: AX, lo: f(L.lo), u, th: f(L.hi - L.lo) }),
       M, M + 25, { size: 9.5, color: MUTED, baseline: 'top' });
     p.lines([[M, M + 42, W - M, M + 42]], RULE, 0.8);
 
@@ -121,28 +121,28 @@
       if (img) { await place3D(p, putImage, img, pxW, pxH, cx, y, colW, ih); y += ih + 18; }
     }
     const { byType, nNew, nCont, wNew } = ctx.layerCounts(info);
-    p.text('En esta capa', cx, y, { size: 11, bold: true, color: INK, baseline: 'top' });
+    p.text(tr('pdf.inLayer'), cx, y, { size: 11, bold: true, color: INK, baseline: 'top' });
     y += 20;
-    p.text(`${f(nNew, 0)} ${nNew === 1 ? 'caja nueva' : 'cajas nuevas'}`, cx, y, { size: 9.5, color: MUTED, baseline: 'top' });
+    p.text(tr('pdf.newBoxes', { n: f(nNew, 0), c: nNew }), cx, y, { size: 9.5, color: MUTED, baseline: 'top' });
     y += 18;
     for (const [t, c] of byType) {
       if (y > bottom - 40) { p.text('…', cx, y, { size: 10, color: MUTED, baseline: 'top' }); y += 16; break; }
       const T = S.types[t];
       p.fillRect(cx, y + 1, 10, 10, T.color);
       p.text(fitText(p, `${f(c, 0)} × ${T.name}`, 10, true, colW - 16), cx + 16, y, { size: 10, bold: true, color: INK, baseline: 'top' });
-      p.text(`${f(T.w)} × ${f(T.h)} × ${f(T.d)} ${u}${T.weight > 0 ? ' · ' + ctx.kg(T.weight) + ' c/u' : ''}${T.noStack ? ' · no apilable' : ''}`, cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
+      p.text(`${f(T.w)} × ${f(T.h)} × ${f(T.d)} ${u}${T.weight > 0 ? tr('pdf.perBox', { w: ctx.kg(T.weight) }) : ''}${T.noStack ? tr('pdf.noStack') : ''}`, cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
       y += 30;
     }
     if (wNew > 0) {
-      p.text(`Peso de esta capa: ${ctx.kg(wNew)}`, cx, y, { size: 9.5, bold: true, color: INK, baseline: 'top' });
+      p.text(tr('pdf.layerWeight', { w: ctx.kg(wNew) }), cx, y, { size: 9.5, bold: true, color: INK, baseline: 'top' });
       y += 20;
     }
     if (nCont) {
       y += 2;
       p.fillRect(cx, y + 1, 10, 10, '#9aa3ae');
       p.hatch(cx, y + 1, 10, 10, '#ffffff', 3.5, 1);
-      p.text(`${f(nCont, 0)} ${nCont === 1 ? 'viene' : 'vienen'} de capas anteriores`, cx + 16, y, { size: 9.5, color: MUTED, baseline: 'top' });
-      p.text('(rayadas: ya están colocadas)', cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
+      p.text(tr('pdf.fromBefore', { n: f(nCont, 0), c: nCont }), cx + 16, y, { size: 9.5, color: MUTED, baseline: 'top' });
+      p.text(tr('pdf.hatched'), cx + 16, y + 13, { size: 8.5, color: FAINT, baseline: 'top' });
     }
     footer(p, W, H, pageNo, total);
   }
@@ -154,9 +154,9 @@
     const multi = ctx.isMulti(), B = ctx.binAt(ctx.ui.bin);
     const view = Object.assign({ tare: R.tare, maxWeight: R.maxWeight }, B);
     p.fillRect(0, 0, W, H, '#ffffff');
-    p.text('Plan de colocación', M, M, { size: 24, bold: true, color: INK, baseline: 'top' });
-    const date = new Date(R.date || Date.now()).toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' });
-    p.text(`Organizador de espacios · calculado el ${date}`, M, M + 32, { size: 9.5, color: MUTED, baseline: 'top' });
+    p.text(tr('pdf.title'), M, M, { size: 24, bold: true, color: INK, baseline: 'top' });
+    const date = new Date(R.date || Date.now()).toLocaleString(I18n.locale(), { dateStyle: 'long', timeStyle: 'short' });
+    p.text(tr('pdf.calculated', { app: tr('app.title'), date }), M, M + 32, { size: 9.5, color: MUTED, baseline: 'top' });
     p.lines([[M, M + 50, W - M, M + 50]], RULE, 0.8);
 
     const imgW = o.with3d && ctx.viewer ? Math.min(360, (W - 2 * M) * 0.46) : 0;
@@ -165,33 +165,33 @@
     const section = t => { p.text(t.toUpperCase(), M, y, { size: 8.5, bold: true, color: FAINT, baseline: 'top' }); y += 15; };
     const line = (t, opt) => { p.text(fitText(p, t, 10, false, colW), M, y, Object.assign({ size: 10, color: INK, baseline: 'top' }, opt)); y += 15; };
 
-    section('Contenedor');
-    line(`${f(S.container.w)} × ${f(S.container.h)} × ${f(S.container.d)} ${u} (ancho × alto × fondo) · ${ctx.volText(R.containerVolume, S.unit)}`);
+    section(tr('pdf.sec.container'));
+    line(`${f(S.container.w)} × ${f(S.container.h)} × ${f(S.container.d)} ${u} (${tr('dims.whd')}) · ${ctx.volText(R.containerVolume, S.unit)}`);
     y += 8;
-    section('Configuración');
-    const supportTxt = S.support > 0 ? `${f(S.support * 100, 0)} % de la base` : 'sin restricción';
-    line(`${S.mode === 'fixed' ? 'Cantidad fija' : 'Maximizar cantidad'} · priorizar ${S.objective === 'count' ? 'número de cajas' : 'volumen ocupado'} · apoyo mínimo: ${supportTxt}`);
-    if (R.maxWeight != null) line(`Peso máximo: ${ctx.kg(R.maxWeight)}${R.tare > 0 ? ` (incluida la tara del contenedor: ${ctx.kg(R.tare)})` : ''}`);
+    section(tr('pdf.sec.config'));
+    const supportTxt = S.support > 0 ? tr('sup.pct', { p: f(S.support * 100, 0) }) : tr('pdf.sup.none');
+    line(tr('pdf.config', { mode: tr(S.mode === 'fixed' ? 'mode.fixed' : 'mode.max'), prio: tr(S.objective === 'count' ? 'pdf.prio.count' : 'pdf.prio.volume'), sup: supportTxt }));
+    if (R.maxWeight != null) line(tr('pdf.maxW', { w: ctx.kg(R.maxWeight) }) + (R.tare > 0 ? tr('pdf.maxWTare', { t: ctx.kg(R.tare) }) : ''));
     y += 8;
 
     // Indicadores
-    section('Resultado');
+    section(tr('pdf.sec.result'));
     const hasW = R.weight > 0 || R.maxWeight != null;
     const kpis = multi ? [
-      [f(R.nBins, 0), R.nBins === 1 ? 'contenedor' : 'contenedores'],
-      [f(R.count, 0), 'cajas en total'],
-      [ctx.pct(R.utilization), 'ocupación media']
+      [f(R.nBins, 0), tr('kpi.bins', { n: R.nBins })],
+      [f(R.count, 0), tr('kpi.total')],
+      [ctx.pct(R.utilization), tr('kpi.avg')]
     ] : [
-      [f(B.count, 0), 'cajas colocadas'],
-      [ctx.pct(B.utilization), 'del volumen ocupado'],
-      [`${f(B.top)} ${u}`, `de altura usada (de ${f(S.container.h)})`]
+      [f(B.count, 0), tr('kpi.placed')],
+      [ctx.pct(B.utilization), tr('kpi.vol')],
+      [`${f(B.top)} ${u}`, tr('kpi.height', { h: f(S.container.h) })]
     ];
     if (multi) {
-      if (hasW) kpis.push([`${f(R.weight, 1)} kg`, 'peso de las cajas']);
+      if (hasW) kpis.push([`${f(R.weight, 1)} kg`, tr('kpi.boxesW')]);
     } else if (hasW) {
-      kpis[1][1] = 'del volumen';
-      kpis[2][1] = `altura (de ${f(S.container.h)})`;
-      kpis.push([`${f(B.weight + (R.tare || 0), 1)} kg`, R.maxWeight != null ? `de ${f(R.maxWeight, 1)} kg máx.` : 'peso total']);
+      kpis[1][1] = tr('kpi.volShort');
+      kpis[2][1] = tr('kpi.heightShort', { h: f(S.container.h) });
+      kpis.push([`${f(B.weight + (R.tare || 0), 1)} kg`, R.maxWeight != null ? tr('kpi.maxOf', { w: f(R.maxWeight, 1) }) : tr('kpi.totalW')]);
     }
     const kw = Math.min(150, (colW - 8 * (kpis.length - 1)) / kpis.length);
     kpis.forEach(([v, l], i) => {
@@ -203,12 +203,13 @@
     });
     y += 58;
     if (multi) {
-      if (R.auto && R.complete) line(`Hacen falta ${R.nBins} ${R.nBins === 1 ? 'contenedor' : 'contenedores'}` +
-        (R.nBins <= R.lowerBound ? ' (el mínimo posible).' : ` (mínimo teórico: ${R.lowerBound}).`), { size: 9.5, bold: true, color: INK });
+      if (R.auto && R.complete) line(tr('pdf.need', { n: R.nBins }) +
+        (R.nBins <= R.lowerBound ? tr('pdf.need.min') : tr('pdf.need.lb', { lb: R.lowerBound })), { size: 9.5, bold: true, color: INK });
       for (const g of ctx.binGroups()) {
         if (y > H - 160) { line('…', { size: 9.5, color: MUTED }); break; }
         const b = R.bins[g.src], k = g.to - g.from + 1;
-        line(`${k > 1 ? `Contenedores ${g.from + 1}–${g.to + 1} (${k} iguales)` : `Contenedor ${g.from + 1}`}: ${f(b.count, 0)} cajas${k > 1 ? ' c/u' : ''} · ${ctx.pct(b.utilization)}` +
+        const label = k > 1 ? tr('pdf.group', { a: g.from + 1, b: g.to + 1, k }) : tr('pdf.groupOne', { a: g.from + 1 });
+        line(tr('pdf.groupLine', { label, n: f(b.count, 0), each: k > 1 ? ' ' + tr('each') : '', p: ctx.pct(b.utilization) }) +
           (hasW ? ` · ${ctx.kg(b.weight + (R.tare || 0))}` : ''), { size: 9.5, color: MUTED });
       }
       y += 4;
@@ -219,10 +220,10 @@
 
     // Tabla de tipos
     const cols = [M, M + colW * 0.46, M + colW * 0.76, colW + M];
-    p.text('Tipo', cols[0], y, { size: 8.5, bold: true, color: MUTED, baseline: 'top' });
-    p.text('Medidas', cols[1], y, { size: 8.5, bold: true, color: MUTED, baseline: 'top' });
-    p.text(multi ? 'Total' : 'Colocadas', cols[2] + 40, y, { size: 8.5, bold: true, color: MUTED, align: 'right', baseline: 'top' });
-    p.text(S.mode === 'fixed' ? 'Pedidas' : 'Máx.', cols[3], y, { size: 8.5, bold: true, color: MUTED, align: 'right', baseline: 'top' });
+    p.text(tr('th.type'), cols[0], y, { size: 8.5, bold: true, color: MUTED, baseline: 'top' });
+    p.text(tr('th.dims'), cols[1], y, { size: 8.5, bold: true, color: MUTED, baseline: 'top' });
+    p.text(tr(multi ? 'th.total' : 'th.placed'), cols[2] + 40, y, { size: 8.5, bold: true, color: MUTED, align: 'right', baseline: 'top' });
+    p.text(tr(S.mode === 'fixed' ? 'th.req' : 'th.max'), cols[3], y, { size: 8.5, bold: true, color: MUTED, align: 'right', baseline: 'top' });
     y += 14;
     p.lines([[M, y, M + colW, y]], RULE, 0.6);
     y += 6;
@@ -232,7 +233,7 @@
       if (y > H - 110) return;
       const req = R.requested[i];
       p.fillRect(cols[0], y + 1, 9, 9, t.color);
-      p.text(fitText(p, t.name + (t.noStack ? ' (no apilable)' : ''), 10, true, cols[1] - cols[0] - 22), cols[0] + 15, y, { size: 10, bold: true, color: INK, baseline: 'top' });
+      p.text(fitText(p, t.name + (t.noStack ? tr('pdf.noStackName') : ''), 10, true, cols[1] - cols[0] - 22), cols[0] + 15, y, { size: 10, bold: true, color: INK, baseline: 'top' });
       p.text(`${f(t.w)} × ${f(t.h)} × ${f(t.d)}${t.weight > 0 ? ` · ${f(t.weight)} kg` : ''}`, cols[1], y, { size: 10, color: INK, baseline: 'top' });
       p.text(f(R.placed[i], 0), cols[2] + 40, y, { size: 10, bold: true, color: INK, align: 'right', baseline: 'top' });
       p.text(req == null || !isFinite(req) ? '—' : f(req, 0), cols[3], y, { size: 10, color: MUTED, align: 'right', baseline: 'top' });
@@ -242,24 +243,24 @@
     });
     y += 10;
     if (unplaced.length) {
-      p.text(fitText(p, `No caben: ${unplaced.join(', ')}`, 9.5, true, colW), M, y, { size: 9.5, bold: true, color: '#b45309', baseline: 'top' });
+      p.text(fitText(p, tr('pdf.notFit', { list: unplaced.join(', ') }), 9.5, true, colW), M, y, { size: 9.5, bold: true, color: '#b45309', baseline: 'top' });
       y += 18;
     }
 
     // Cómo leer las páginas
     const layers = ctx.getLayers(o.axis, ctx.ui.bin);
     if (y < H - 100) {
-      section('Cómo leer las páginas');
+      section(tr('pdf.sec.howto'));
       const tips = [
-        multi ? `Las páginas van por contenedor; los contenedores iguales se muestran una sola vez.` : '',
-        `${AXIS_NAMES[o.axis]}: capas ordenadas ${ctx.axisText[o.axis].dir}${multi ? '' : ` (${layers.length} ${layers.length === 1 ? 'capa' : 'capas'})`}.`,
-        'Cada página muestra el corte de una capa con las medidas en ' + u + '.',
-        'Las cajas rayadas empiezan en una capa anterior y ya están colocadas.',
-        o.with3d && ctx.viewer ? 'En la vista 3D, la capa actual va en color y las anteriores en gris.' : '',
-        B.cog && o.with3d && ctx.viewer ? 'La marca rosa «CG» indica el centro de gravedad de la carga.' : '',
-        multi && imgW ? `La vista 3D de esta portada es la del contenedor ${ctx.ui.bin + 1}.` : ''
+        multi ? tr('pdf.tip.bins') : '',
+        tr('pdf.tip.axis', { axis: ctx.axisText[o.axis].name, dir: ctx.axisText[o.axis].dir, count: multi ? '' : tr('pdf.tip.axisCount', { n: layers.length }) }),
+        tr('pdf.tip.cut', { u }),
+        tr('pdf.tip.hatch'),
+        o.with3d && ctx.viewer ? tr('pdf.tip.3d') : '',
+        B.cog && o.with3d && ctx.viewer ? tr('pdf.tip.cg') : '',
+        multi && imgW ? tr('pdf.tip.coverBin', { k: ctx.ui.bin + 1 }) : ''
       ].filter(Boolean);
-      for (const t of tips) { if (y > H - 50) break; line('• ' + t, { size: 9.5, color: MUTED }); }
+      for (const tip of tips) { if (y > H - 50) break; line('• ' + tip, { size: 9.5, color: MUTED }); }
     }
 
     if (imgW) {
@@ -299,7 +300,7 @@
     let pageNo = 0;
     try {
       if (o.cover) {
-        status('Generando portada…'); await tick();
+        status(tr('st.cover')); await tick();
         ctx.showBin(ctx.ui.bin);
         const pg = new PdfPainter(pdf, pdf.addPage(W, H));
         await drawCover(pg, (...a) => putImage(...a, pg), W, H, o, ++pageNo, total);
@@ -307,7 +308,7 @@
       for (const { g, idx } of plan) {
         if (g) ctx.showBin(g.src);
         for (const i of idx) {
-          status(`Generando ${g ? `contenedor ${g.from + 1}, ` : ''}capa ${i + 1} (página ${pageNo + 1} de ${total})…`); await tick();
+          status(tr('st.page', { bin: g ? tr('st.pageBin', { k: g.from + 1 }) : '', i: i + 1, p: pageNo + 1, n: total })); await tick();
           const pg = new PdfPainter(pdf, pdf.addPage(W, H));
           await drawLayerPage(pg, (...a) => putImage(...a, pg), W, H, o, i, ++pageNo, total, g);
         }
@@ -315,13 +316,13 @@
     } finally {
       ctx.showBin(ctx.ui.bin);
     }
-    status('Guardando PDF…'); await tick();
-    const blob = await pdf.toBlob({ title: 'Plan de colocación — Organizador de espacios' });
-    download(blob, `capas-${o.axis}-${stamp()}.pdf`);
+    status(tr('st.saving')); await tick();
+    const blob = await pdf.toBlob({ title: tr('pdf.docTitle'), producer: tr('app.title') });
+    download(blob, `${tr('file.layers')}-${o.axis}-${stamp()}.pdf`);
   }
 
   async function exportLayerPng(o, status) {
-    status('Generando imagen…'); await tick();
+    status(tr('st.image')); await tick();
     const [W, H] = PAPER.a4, k = 2;
     const cv = document.createElement('canvas');
     cv.width = Math.round(W * k); cv.height = Math.round(H * k);
@@ -338,14 +339,14 @@
     const g = binPlan(Object.assign({}, o, { bins: 'current' }))[0];
     await drawLayerPage(p, putImage, W, H, o, i, 0, 0, g);
     const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
-    download(blob, `${g ? `contenedor-${g.from + 1}-` : ''}capa-${i + 1}-${o.axis}-${stamp()}.png`);
+    download(blob, `${g ? `${tr('file.container')}-${g.from + 1}-` : ''}${tr('file.layer')}-${i + 1}-${o.axis}-${stamp()}.png`);
   }
 
   async function export3dPng(status) {
-    status('Generando imagen…'); await tick();
+    status(tr('st.image')); await tick();
     const url = ctx.viewer.snapshot('image/png');
     const blob = await (await fetch(url)).blob();
-    download(blob, `vista-3d-${stamp()}.png`);
+    download(blob, `${tr('file.view3d')}-${stamp()}.png`);
   }
 
   // ---- Diálogo -----------------------------------------------------------------------
@@ -375,13 +376,13 @@
     if (o.fmt === 'pdf') {
       const plan = binPlan(o);
       const pages = plan.reduce((a, g) => a + layerIndexes(o, g ? g.src : ctx.ui.bin).length, 0) + (o.cover ? 1 : 0);
-      info.textContent = `${pages} ${pages === 1 ? 'página' : 'páginas'}` + (ctx.isMulti() && o.bins !== 'current'
-        ? ` · ${plan.length} ${plan.length === 1 ? 'distribución distinta' : 'distribuciones distintas'} para ${ctx.result.nBins} contenedores.`
-        : ` · ${n} ${n === 1 ? 'capa' : 'capas'} en esta dirección.`);
+      info.textContent = tr('dlg.info.pages', { n: pages }) + (ctx.isMulti() && o.bins !== 'current'
+        ? tr('dlg.info.plans', { k: plan.length, n: ctx.result.nBins })
+        : tr('dlg.info.layers', { n }));
     } else if (o.fmt === 'png-layer') {
       const i = layerIndexes(Object.assign({}, o, { range: 'current' }))[0] || 0;
-      info.textContent = `Capa ${i + 1} de ${n}` + (o.axis !== ctx.ui.axis ? ' (primera capa: la actual es de otra dirección).' : '.');
-    } else info.textContent = 'Se guarda la vista 3D tal como se ve en pantalla.';
+      info.textContent = tr('dlg.info.layer', { i: i + 1, n }) + (o.axis !== ctx.ui.axis ? tr('dlg.info.otherAxis') : '.');
+    } else info.textContent = tr('dlg.info.3d');
   }
 
   function setStatus(t, kind) {
@@ -399,7 +400,7 @@
     $('#exp-3d').disabled = no3d;
     document.querySelector('input[name="exp-fmt"][value="png-3d"]').disabled = no3d;
     if (no3d && readOptions().fmt === 'png-3d') document.querySelector('input[name="exp-fmt"][value="pdf"]').checked = true;
-    setStatus(ctx.stale ? 'La configuración ha cambiado desde el último cálculo: se exportará el último resultado calculado.' : '', 'warn');
+    setStatus(ctx.stale ? tr('dlg.stale') : '', 'warn');
     refreshDialog();
     if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
   }
@@ -429,7 +430,7 @@
         close();
       } catch (err) {
         console.error(err);
-        setStatus('No se pudo generar el archivo: ' + (err && err.message ? err.message : err), 'error');
+        setStatus(tr('dlg.error', { e: err && err.message ? err.message : err }), 'error');
       } finally {
         busy = false;
         go.disabled = false;

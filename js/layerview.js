@@ -12,10 +12,11 @@
   'use strict';
 
   const AXES = {
-    y: { u: 'x', us: 'w', v: 'z', vs: 'd', down: true, uLabel: 'X · ancho', vLabel: 'Z · fondo' },
-    z: { u: 'x', us: 'w', v: 'y', vs: 'h', down: false, uLabel: 'X · ancho', vLabel: 'Y · alto' },
-    x: { u: 'z', us: 'd', v: 'y', vs: 'h', down: false, uLabel: 'Z · fondo', vLabel: 'Y · alto' }
+    y: { u: 'x', us: 'w', v: 'z', vs: 'd', down: true },
+    z: { u: 'x', us: 'w', v: 'y', vs: 'h', down: false },
+    x: { u: 'z', us: 'd', v: 'y', vs: 'h', down: false }
   };
+  const tr = (k, p) => (root.I18n ? root.I18n.t(k, p) : k);
 
   const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
 
@@ -118,7 +119,7 @@
         const lines = [];
         if (rh > 30 * k && p.measure(name, fs, true) < rw - 6 * k) lines.push(name);
         if (p.measure(dims, fs, true) < rw - 6 * k) lines.push(dims);
-        if (it.count > 1 && rh > 44 * k) lines.push(`${it.count} cajas`);
+        if (it.count > 1 && rh > 44 * k) lines.push(tr('lv.boxes', { n: it.count }));
         const tc = textColor(col);
         lines.forEach((t, j) => p.text(t, rx + rw / 2, ry + rh / 2 + (j - (lines.length - 1) / 2) * 13 * k,
           { size: fs, bold: true, color: tc, align: 'center', baseline: 'middle' }));
@@ -140,14 +141,14 @@
       p.text(d.fmt(v), ox - 8 * k, Y(v), { size: fs, color: T.text, align: 'right', baseline: 'middle' });
     }
     p.lines(ticks, T.frame, k);
-    p.text(`${A.uLabel} (${d.unit})`, ox + U * s / 2, frame.y + frame.h - 4 * k,
+    p.text(`${tr('lv.' + A.u)} (${d.unit})`, ox + U * s / 2, frame.y + frame.h - 4 * k,
       { size: fs, bold: true, color: T.text, align: 'center', baseline: 'bottom' });
-    const dir = opt.arrows === false ? (A.down ? ' (hacia abajo)' : '') : (A.down ? ' ↓' : ' ↑');
-    p.text(`${A.vLabel} (${d.unit})${dir}`, Math.max(frame.x + 12 * k, ox - 44 * k), oy + V * s / 2,
+    const dir = opt.arrows === false ? (A.down ? tr('lv.down') : '') : (A.down ? ' ↓' : ' ↑');
+    p.text(`${tr('lv.' + A.v)} (${d.unit})${dir}`, Math.max(frame.x + 12 * k, ox - 44 * k), oy + V * s / 2,
       { size: fs, bold: true, color: T.text, align: 'center', baseline: 'middle', rotate: -Math.PI / 2 });
 
     if (!items.length) {
-      p.text(d.emptyText || 'Sin cajas', ox + U * s / 2, oy + V * s / 2, { size: 13 * k, color: T.text, align: 'center', baseline: 'middle' });
+      p.text(d.emptyText || tr('layer.noBoxes'), ox + U * s / 2, oy + V * s / 2, { size: 13 * k, color: T.text, align: 'center', baseline: 'middle' });
     }
     return { rects, box: { x: ox, y: oy, w: U * s, h: V * s } };
   }

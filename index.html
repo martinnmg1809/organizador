@@ -12,46 +12,54 @@
   <header class="topbar">
     <div class="brand">
       <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 29 9v14l-13 7-13-7V9z" fill="currentColor"/><path d="M16 16 29 9M16 16 3 9M16 16v14" stroke="var(--bg)" stroke-width="2" fill="none"/></svg>
-      <h1>Organizador de espacios</h1>
+      <h1 data-i18n="app.title">Organizador de espacios</h1>
     </div>
     <div class="topbar-actions">
-      <button type="button" class="btn ghost" id="btn-example" title="Cargar la configuración de ejemplo">Ejemplo</button>
-      <button type="button" class="btn ghost" id="btn-import" title="Abrir un proyecto guardado (.json)">Abrir</button>
-      <button type="button" class="btn" id="btn-export" title="Guardar el proyecto en un archivo .json">Guardar</button>
+      <label class="lang-select" data-i18n-title="lang.label" title="Idioma">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.8 8h12.4M8 1.7c-2 2.1-2 10.5 0 12.6M8 1.7c2 2.1 2 10.5 0 12.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+        <select id="lang" data-i18n-aria="lang.label" aria-label="Idioma">
+          <option value="es">Español</option>
+          <option value="en">English</option>
+          <option value="pt-BR">Português (BR)</option>
+        </select>
+      </label>
+      <button type="button" class="btn ghost" id="btn-example" data-i18n="top.example" data-i18n-title="top.example.title">Ejemplo</button>
+      <button type="button" class="btn ghost" id="btn-import" data-i18n="top.open" data-i18n-title="top.open.title">Abrir</button>
+      <button type="button" class="btn" id="btn-export" data-i18n="top.save" data-i18n-title="top.save.title">Guardar</button>
       <input type="file" id="file-import" accept=".json,application/json" hidden>
     </div>
   </header>
 
   <main class="app">
-    <aside class="panel" aria-label="Configuración">
+    <aside class="panel" data-i18n-aria="panel.aria" aria-label="Configuración">
       <section class="card">
         <div class="card-head">
-          <h2>Contenedor</h2>
-          <label class="inline-select">Unidad
+          <h2 data-i18n="c.title">Contenedor</h2>
+          <label class="inline-select"><span data-i18n="c.unit">Unidad</span>
             <select id="unit">
               <option value="mm">mm</option>
               <option value="cm">cm</option>
               <option value="m">m</option>
-              <option value="in">pulgadas</option>
+              <option value="in" data-i18n="unit.in">pulgadas</option>
             </select>
           </label>
         </div>
         <div class="dims">
-          <label><span>Ancho <em>X</em></span><input type="number" id="c-w" min="0" step="any" inputmode="decimal"></label>
-          <label><span>Alto <em>Y</em></span><input type="number" id="c-h" min="0" step="any" inputmode="decimal"></label>
-          <label><span>Fondo <em>Z</em></span><input type="number" id="c-d" min="0" step="any" inputmode="decimal"></label>
+          <label><span><span data-i18n="dim.w">Ancho</span> <em>X</em></span><input type="number" id="c-w" min="0" step="any" inputmode="decimal"></label>
+          <label><span><span data-i18n="dim.h">Alto</span> <em>Y</em></span><input type="number" id="c-h" min="0" step="any" inputmode="decimal"></label>
+          <label><span><span data-i18n="dim.d">Fondo</span> <em>Z</em></span><input type="number" id="c-d" min="0" step="any" inputmode="decimal"></label>
         </div>
         <p class="hint" id="c-vol"></p>
         <div class="weight">
           <div class="dims two">
-            <label><span>Peso máximo <em>kg</em></span><input type="number" id="c-maxw" min="0" step="any" inputmode="decimal" placeholder="Sin límite"></label>
-            <label title="Peso del contenedor vacío, que también se carga"><span>Tara (vacío) <em>kg</em></span><input type="number" id="c-tare" min="0" step="any" inputmode="decimal" placeholder="0"></label>
+            <label><span><span data-i18n="c.maxw">Peso máximo</span> <em>kg</em></span><input type="number" id="c-maxw" min="0" step="any" inputmode="decimal" data-i18n-placeholder="noLimit" placeholder="Sin límite"></label>
+            <label data-i18n-title="c.tare.title" title="Peso del contenedor vacío, que también se carga"><span><span data-i18n="c.tare">Tara (vacío)</span> <em>kg</em></span><input type="number" id="c-tare" min="0" step="any" inputmode="decimal" placeholder="0"></label>
           </div>
-          <div class="presets" id="weight-presets" role="group" aria-label="Límites legales de carga manual en Chile">
-            <span class="presets-label">Carga manual en Chile:</span>
-            <button type="button" class="chip-btn" data-w="25" title="Código del Trabajo, art. 211-H: máximo para trabajadores en general">25 kg · general</button>
-            <button type="button" class="chip-btn" data-w="20" title="Código del Trabajo, art. 211-J: máximo para mujeres y menores de 18 años">20 kg · mujeres y menores de 18</button>
-            <button type="button" class="chip-btn" data-w="" title="Quitar el límite de peso">Sin límite</button>
+          <div class="presets" id="weight-presets" role="group" data-i18n-aria="w.presets.aria" aria-label="Límites legales de carga manual en Chile">
+            <span class="presets-label" data-i18n="w.presets.label">Carga manual en Chile:</span>
+            <button type="button" class="chip-btn" data-w="25" data-i18n="w.p25" data-i18n-title="w.p25.title">25 kg · general</button>
+            <button type="button" class="chip-btn" data-w="20" data-i18n="w.p20" data-i18n-title="w.p20.title">20 kg · mujeres y menores de 18</button>
+            <button type="button" class="chip-btn" data-w="" data-i18n="noLimit" data-i18n-title="w.pnone.title">Sin límite</button>
           </div>
           <p class="hint" id="w-info"></p>
         </div>
@@ -59,57 +67,57 @@
 
       <section class="card">
         <div class="card-head">
-          <h2>Tipos de caja</h2>
-          <button type="button" class="btn small" id="btn-add-type">+ Añadir</button>
+          <h2 data-i18n="types.title">Tipos de caja</h2>
+          <button type="button" class="btn small" id="btn-add-type" data-i18n="types.add">+ Añadir</button>
         </div>
         <div id="types" class="types"></div>
       </section>
 
       <section class="card">
-        <h2>Objetivo</h2>
-        <div class="segmented full" id="mode" role="radiogroup" aria-label="Modo">
-          <button type="button" data-v="max" role="radio">Maximizar cantidad</button>
-          <button type="button" data-v="fixed" role="radio">Cantidad fija</button>
+        <h2 data-i18n="obj.title">Objetivo</h2>
+        <div class="segmented full" id="mode" role="radiogroup" data-i18n-aria="mode.aria" aria-label="Modo">
+          <button type="button" data-v="max" role="radio" data-i18n="mode.max">Maximizar cantidad</button>
+          <button type="button" data-v="fixed" role="radio" data-i18n="mode.fixed">Cantidad fija</button>
         </div>
         <p class="hint" id="mode-hint"></p>
         <div class="form-rows bins-rows">
-          <label id="bins-mode-row"><span>Contenedores</span>
+          <label id="bins-mode-row"><span data-i18n="bins.label">Contenedores</span>
             <select id="bins-mode">
-              <option value="auto">Calcular cuántos hacen falta</option>
-              <option value="n">Número fijo</option>
+              <option value="auto" data-i18n="bins.auto">Calcular cuántos hacen falta</option>
+              <option value="n" data-i18n="bins.n">Número fijo</option>
             </select>
           </label>
-          <label id="bins-n-row"><span>Número de contenedores</span>
+          <label id="bins-n-row"><span data-i18n="bins.nLabel">Número de contenedores</span>
             <input type="number" id="bins-n" min="1" max="500" step="1" inputmode="numeric">
           </label>
         </div>
         <div class="form-rows">
           <label><span id="objective-label">Priorizar</span>
             <select id="objective">
-              <option value="count">Número de cajas</option>
-              <option value="volume">Volumen ocupado</option>
+              <option value="count" data-i18n="obj.count">Número de cajas</option>
+              <option value="volume" data-i18n="obj.volume">Volumen ocupado</option>
             </select>
           </label>
-          <label><span>Apoyo mínimo</span>
+          <label><span data-i18n="sup.label">Apoyo mínimo</span>
             <select id="support">
-              <option value="0">Sin restricción</option>
-              <option value="0.5">50 % de la base</option>
-              <option value="0.75">75 % de la base</option>
-              <option value="1">100 % de la base</option>
+              <option value="0" data-i18n="sup.none">Sin restricción</option>
+              <option value="0.5" data-pct="50">50 % de la base</option>
+              <option value="0.75" data-pct="75">75 % de la base</option>
+              <option value="1" data-pct="100">100 % de la base</option>
             </select>
           </label>
-          <label><span>Tiempo de búsqueda</span>
+          <label><span data-i18n="time.label">Tiempo de búsqueda</span>
             <select id="time">
-              <option value="1">1 s (rápido)</option>
+              <option value="1" data-i18n="time.fast">1 s (rápido)</option>
               <option value="3">3 s</option>
               <option value="5">5 s</option>
               <option value="10">10 s</option>
-              <option value="30">30 s (exhaustivo)</option>
+              <option value="30" data-i18n="time.thorough">30 s (exhaustivo)</option>
             </select>
           </label>
         </div>
         <div class="msg" id="msg" hidden></div>
-        <button type="button" class="btn primary block" id="btn-run">Calcular distribución</button>
+        <button type="button" class="btn primary block" id="btn-run" data-i18n="run.go">Calcular distribución</button>
         <div class="progress" id="progress" hidden>
           <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
           <span id="progress-text"></span>
@@ -118,53 +126,53 @@
 
       <section class="card" id="results-card">
         <div class="card-head">
-          <h2>Resultado</h2>
-          <span class="badge warn" id="stale" hidden>Desactualizado</span>
+          <h2 data-i18n="res.title">Resultado</h2>
+          <span class="badge warn" id="stale" hidden data-i18n="res.stale">Desactualizado</span>
         </div>
-        <div id="results"><p class="empty">Configura el contenedor y las cajas y pulsa <b>Calcular distribución</b>.</p></div>
+        <div id="results"></div>
       </section>
     </aside>
 
-    <section class="workspace" aria-label="Visualización">
+    <section class="workspace" data-i18n-aria="workspace.aria" aria-label="Visualización">
       <div class="toolbar">
-        <div class="segmented" id="view-mode" role="radiogroup" aria-label="Vista">
+        <div class="segmented" id="view-mode" role="radiogroup" data-i18n-aria="view.aria" aria-label="Vista">
           <button type="button" data-v="3d" role="radio">3D</button>
-          <button type="button" data-v="split" role="radio">Dividida</button>
-          <button type="button" data-v="2d" role="radio">Capas 2D</button>
+          <button type="button" data-v="split" role="radio" data-i18n="view.split">Dividida</button>
+          <button type="button" data-v="2d" role="radio" data-i18n="view.2d">Capas 2D</button>
         </div>
         <div class="toolbar-group">
-          <span class="toolbar-label">Capas</span>
-          <div class="segmented" id="axis" role="radiogroup" aria-label="Dirección de las capas">
-            <button type="button" data-v="y" role="radio" title="Capas horizontales, de abajo arriba (vista superior)">Horizontales · Y</button>
-            <button type="button" data-v="z" role="radio" title="Capas verticales de atrás hacia delante (vista frontal)">Frontales · Z</button>
-            <button type="button" data-v="x" role="radio" title="Capas verticales de izquierda a derecha (vista lateral)">Laterales · X</button>
+          <span class="toolbar-label" data-i18n="layers.label">Capas</span>
+          <div class="segmented" id="axis" role="radiogroup" data-i18n-aria="axis.aria" aria-label="Dirección de las capas">
+            <button type="button" data-v="y" role="radio" data-i18n="axis.y.btn" data-i18n-title="axis.y.title">Horizontales · Y</button>
+            <button type="button" data-v="z" role="radio" data-i18n="axis.z.btn" data-i18n-title="axis.z.title">Frontales · Z</button>
+            <button type="button" data-v="x" role="radio" data-i18n="axis.x.btn" data-i18n-title="axis.x.title">Laterales · X</button>
           </div>
         </div>
       </div>
 
       <div class="binbar" id="binbar" hidden>
-        <span class="toolbar-label">Contenedor</span>
+        <span class="toolbar-label" data-i18n="bin.label">Contenedor</span>
         <div class="bin-nav">
-          <button type="button" class="btn icon" id="bin-prev" aria-label="Contenedor anterior">‹</button>
-          <select id="bin-select" aria-label="Contenedor"></select>
-          <button type="button" class="btn icon" id="bin-next" aria-label="Contenedor siguiente">›</button>
+          <button type="button" class="btn icon" id="bin-prev" data-i18n-aria="bin.prev" aria-label="Contenedor anterior">‹</button>
+          <select id="bin-select" data-i18n-aria="bin.label" aria-label="Contenedor"></select>
+          <button type="button" class="btn icon" id="bin-next" data-i18n-aria="bin.next" aria-label="Contenedor siguiente">›</button>
         </div>
         <span class="bin-info" id="bin-info"></span>
       </div>
 
       <div class="layerbar">
-        <label class="check" title="Resalta la capa seleccionada en la vista 3D y atenúa el resto">
-          <input type="checkbox" id="layer-mode"> Resaltar capa en 3D
+        <label class="check" data-i18n-title="layer.highlight.title" title="Resalta la capa seleccionada en la vista 3D y atenúa el resto">
+          <input type="checkbox" id="layer-mode"> <span data-i18n="layer.highlight">Resaltar capa en 3D</span>
         </label>
         <div class="layer-nav">
-          <button type="button" class="btn icon" id="layer-prev" aria-label="Capa anterior">‹</button>
-          <input type="range" id="layer-slider" min="0" max="0" value="0" aria-label="Capa">
-          <button type="button" class="btn icon" id="layer-next" aria-label="Capa siguiente">›</button>
+          <button type="button" class="btn icon" id="layer-prev" data-i18n-aria="layer.prev" aria-label="Capa anterior">‹</button>
+          <input type="range" id="layer-slider" min="0" max="0" value="0" data-i18n-aria="layer.aria" aria-label="Capa">
+          <button type="button" class="btn icon" id="layer-next" data-i18n-aria="layer.next" aria-label="Capa siguiente">›</button>
         </div>
         <span class="layer-label" id="layer-label">—</span>
-        <button type="button" class="btn small" id="btn-export-layers" title="Exportar las capas como PDF o imagen">
+        <button type="button" class="btn small" id="btn-export-layers" data-i18n-title="export.btn.title" title="Exportar las capas como PDF o imagen">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 1.5v8.5M4.5 6.5 8 10l3.5-3.5M2.5 11v2.5h11V11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Exportar
+          <span data-i18n="export.btn">Exportar</span>
         </button>
       </div>
 
@@ -176,19 +184,19 @@
           <div class="view-tools">
             <div class="segmented small" id="cam-views">
               <button type="button" data-v="iso">Iso</button>
-              <button type="button" data-v="front">Frente</button>
-              <button type="button" data-v="top">Arriba</button>
-              <button type="button" data-v="side">Lateral</button>
+              <button type="button" data-v="front" data-i18n="cam.front">Frente</button>
+              <button type="button" data-v="top" data-i18n="cam.top">Arriba</button>
+              <button type="button" data-v="side" data-i18n="cam.side">Lateral</button>
             </div>
           </div>
           <div class="view-tools bottom" id="ghost-tools">
-            <label class="range-label">Otras capas
+            <label class="range-label"><span data-i18n="ghost.label">Otras capas</span>
               <input type="range" id="ghost" min="0" max="0.5" step="0.01">
             </label>
-            <label class="check small"><input type="checkbox" id="solid-before"> Anteriores sólidas</label>
+            <label class="check small"><input type="checkbox" id="solid-before"> <span data-i18n="ghost.before">Anteriores sólidas</span></label>
           </div>
-          <div class="view-help">Arrastra: girar · Rueda: zoom · Clic derecho o Mayús: mover · Doble clic: centrar</div>
-          <div class="nogl" id="nogl" hidden>Tu navegador no admite WebGL: la vista 3D no está disponible, pero puedes usar la vista por capas.</div>
+          <div class="view-help" data-i18n="help3d">Arrastra: girar · Rueda: zoom · Clic derecho o Mayús: mover · Doble clic: centrar</div>
+          <div class="nogl" id="nogl" hidden data-i18n="nogl">Tu navegador no admite WebGL: la vista 3D no está disponible, pero puedes usar la vista por capas.</div>
         </div>
         <div class="view view2d">
           <div class="view-title" id="v2d-title"></div>
@@ -204,63 +212,64 @@
 
   <dialog class="dialog" id="export-dialog" aria-labelledby="export-title">
     <form id="export-form">
-      <h2 id="export-title">Exportar capas</h2>
+      <h2 id="export-title" data-i18n="dlg.title">Exportar capas</h2>
       <fieldset class="choices">
-        <legend class="sr-only">Formato</legend>
+        <legend class="sr-only" data-i18n="dlg.format">Formato</legend>
         <label class="choice">
           <input type="radio" name="exp-fmt" value="pdf" checked>
-          <span><b>PDF con todas las capas</b><small>Portada con el resumen y una página por capa, listo para imprimir.</small></span>
+          <span><b data-i18n="dlg.pdf">PDF con todas las capas</b><small data-i18n="dlg.pdf.desc">Portada con el resumen y una página por capa, listo para imprimir.</small></span>
         </label>
         <label class="choice">
           <input type="radio" name="exp-fmt" value="png-layer">
-          <span><b>Imagen PNG de la capa actual</b><small>La misma página que en el PDF, como imagen.</small></span>
+          <span><b data-i18n="dlg.pngLayer">Imagen PNG de la capa actual</b><small data-i18n="dlg.pngLayer.desc">La misma página que en el PDF, como imagen.</small></span>
         </label>
         <label class="choice">
           <input type="radio" name="exp-fmt" value="png-3d">
-          <span><b>Imagen PNG de la vista 3D</b><small>Tal como se ve ahora en pantalla.</small></span>
+          <span><b data-i18n="dlg.png3d">Imagen PNG de la vista 3D</b><small data-i18n="dlg.png3d.desc">Tal como se ve ahora en pantalla.</small></span>
         </label>
       </fieldset>
       <div class="form-rows">
-        <label data-for="pdf png-layer"><span>Dirección de las capas</span>
+        <label data-for="pdf png-layer"><span data-i18n="dlg.axis">Dirección de las capas</span>
           <select id="exp-axis">
-            <option value="y">Horizontales · Y</option>
-            <option value="z">Frontales · Z</option>
-            <option value="x">Laterales · X</option>
+            <option value="y" data-i18n="axis.y.btn">Horizontales · Y</option>
+            <option value="z" data-i18n="axis.z.btn">Frontales · Z</option>
+            <option value="x" data-i18n="axis.x.btn">Laterales · X</option>
           </select>
         </label>
-        <label data-for="pdf" id="exp-bins-row"><span>Contenedores</span>
+        <label data-for="pdf" id="exp-bins-row"><span data-i18n="dlg.bins">Contenedores</span>
           <select id="exp-bins">
-            <option value="all">Todos</option>
-            <option value="current">Solo el que se está viendo</option>
+            <option value="all" data-i18n="dlg.bins.all">Todos</option>
+            <option value="current" data-i18n="dlg.bins.current">Solo el que se está viendo</option>
           </select>
         </label>
-        <label data-for="pdf"><span>Páginas</span>
+        <label data-for="pdf"><span data-i18n="dlg.pages">Páginas</span>
           <select id="exp-range">
-            <option value="all">Todas las capas</option>
-            <option value="current">Solo la capa actual</option>
+            <option value="all" data-i18n="dlg.pages.all">Todas las capas</option>
+            <option value="current" data-i18n="dlg.pages.current">Solo la capa actual</option>
           </select>
         </label>
-        <label data-for="pdf"><span>Papel</span>
+        <label data-for="pdf"><span data-i18n="dlg.paper">Papel</span>
           <select id="exp-paper">
-            <option value="a4">A4 horizontal</option>
-            <option value="letter">Carta horizontal</option>
+            <option value="a4" data-i18n="dlg.paper.a4">A4 horizontal</option>
+            <option value="letter" data-i18n="dlg.paper.letter">Carta horizontal</option>
           </select>
         </label>
       </div>
       <div class="checks">
-        <label class="check" data-for="pdf"><input type="checkbox" id="exp-cover" checked> Portada con resumen</label>
-        <label class="check" data-for="pdf png-layer"><input type="checkbox" id="exp-3d" checked> Incluir vista 3D</label>
-        <label class="check" data-for="pdf png-layer"><input type="checkbox" id="exp-before" checked> Capas anteriores en gris en la vista 3D</label>
+        <label class="check" data-for="pdf"><input type="checkbox" id="exp-cover" checked> <span data-i18n="dlg.cover">Portada con resumen</span></label>
+        <label class="check" data-for="pdf png-layer"><input type="checkbox" id="exp-3d" checked> <span data-i18n="dlg.with3d">Incluir vista 3D</span></label>
+        <label class="check" data-for="pdf png-layer"><input type="checkbox" id="exp-before" checked> <span data-i18n="dlg.before">Capas anteriores en gris en la vista 3D</span></label>
       </div>
       <p class="hint" id="exp-info"></p>
       <div class="msg" id="exp-status" hidden></div>
       <div class="dialog-actions">
-        <button type="button" class="btn ghost" id="exp-cancel">Cancelar</button>
-        <button type="submit" class="btn primary" id="exp-go">Exportar</button>
+        <button type="button" class="btn ghost" id="exp-cancel" data-i18n="dlg.cancel">Cancelar</button>
+        <button type="submit" class="btn primary" id="exp-go" data-i18n="dlg.go">Exportar</button>
       </div>
     </form>
   </dialog>
 
+  <script src="js/i18n.js"></script>
   <script src="js/packer.js"></script>
   <script src="js/viewer3d.js"></script>
   <script src="js/layerview.js"></script>

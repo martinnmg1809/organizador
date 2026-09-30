@@ -90,7 +90,14 @@ button, input, select { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--accent); min-width: 0; }
 .brand svg { width: 26px; height: 26px; flex: none; }
 .brand h1 { font-size: 17px; font-weight: 650; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.topbar-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.topbar-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.lang-select {
+  display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 4px 0 8px;
+  border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); cursor: pointer;
+}
+.lang-select select { border: 0; background: transparent; height: 30px; padding: 0 2px; width: auto; font-weight: 550; color: var(--text); cursor: pointer; }
+.lang-select:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lang-select select:focus-visible { outline: none; }
 
 /* ---------- Botones ---------- */
 .btn {

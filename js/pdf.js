@@ -127,7 +127,7 @@
       }
       set(catalog, `<< /Type /Catalog /Pages ${pagesObj} 0 R >>`);
       set(pagesObj, `<< /Type /Pages /Kids [${kids.map(k => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`);
-      set(info, `<< /Title ${pdfTextString(meta.title || 'Documento')} /Producer ${pdfTextString('Organizador de espacios')} >>`);
+      set(info, `<< /Title ${pdfTextString(meta.title || 'Documento')} /Producer ${pdfTextString(meta.producer || 'Organizador de espacios')} >>`);
 
       let out = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
       const offsets = [];

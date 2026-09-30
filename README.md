@@ -8,6 +8,10 @@ y la muestra en 3D y por capas.
 **En línea:** <https://martinnmg1809.github.io/organizador/> — funciona en el ordenador,
 la tablet o el móvil, sin instalar nada.
 
+**Idiomas:** español, inglés y portugués de Brasil (selector arriba a la derecha). Para
+compartir un enlace en un idioma concreto: `?lang=es`, `?lang=en` o `?lang=pt-BR`
+(por ejemplo <https://martinnmg1809.github.io/organizador/?lang=en>).
+
 **Sin conexión:** abre `index.html` con doble clic en cualquier navegador moderno (Chrome, Edge o Firefox).
 No hace falta instalar nada, ni un servidor, ni conexión a internet.
 
@@ -58,6 +62,8 @@ siempre que mantengas juntos `index.html`, `css/` y `js/`.
     cajas que hay que colocar. Listo para imprimir como instrucciones de montaje.
   - *PNG de la capa actual*: la misma página, como imagen.
   - *PNG de la vista 3D* tal como se ve en pantalla.
+- **Idiomas**: toda la interfaz, los avisos, los diagramas y el PDF están en español, inglés
+  y portugués de Brasil, con el formato de números y fechas de cada idioma.
 - **Guardar / Abrir** proyectos como archivo `.json`. La última configuración también se
   recuerda automáticamente en el navegador.
 
@@ -71,6 +77,7 @@ js/viewer3d.js    Visor 3D (WebGL, sin librerías externas)
 js/layerview.js   Vista 2D por capas (el mismo dibujo sirve para pantalla, PNG y PDF)
 js/pdf.js         Generador de PDF propio (vectorial, sin dependencias)
 js/export.js      Exportación de capas a PDF / PNG
+js/i18n.js        Traducciones (es, en, pt-BR)
 js/app.js         Interfaz y coordinación
 ```
 
