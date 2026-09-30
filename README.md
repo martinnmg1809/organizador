@@ -84,7 +84,19 @@ js/pdf.js         Generador de PDF propio (vectorial, sin dependencias)
 js/export.js      Exportación de capas a PDF / PNG
 js/i18n.js        Traducciones (es, en, pt-BR)
 js/app.js         Interfaz y coordinación
+tools/version-assets.js  Añade ?v=<huella> a los CSS/JS de index.html
 ```
+
+## Publicar cambios
+
+Antes de cada commit que se vaya a publicar en GitHub Pages:
+
+```
+node tools/version-assets.js
+```
+
+Así cada archivo modificado tiene una URL nueva y los navegadores no usan la versión
+antigua que tengan en caché.
 
 ## Cómo calcula
 
